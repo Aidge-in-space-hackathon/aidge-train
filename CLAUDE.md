@@ -7,13 +7,13 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 Student team repository for the **Challenge AIDGE** (embedded AI challenge, Oct 1 – Dec 31 2026; deliverables due 2026-12-31, jury defense 2027-01-14). The team is working on the **"AIDGE IN SPACE"** subject (Viveris / CNES):
 
 - Goal: optimize imaging data bandwidth between a lunar rover and the space platform by running **neural-network image compression** on a space-qualifiable **CPU/FPGA** target.
-- Model to port: **J. Ballé's learned image compression** (`Ressources/docPDF/1611.01704v3.pdf`, "End-to-end Optimized Image Compression").
+- Model to port: **J. Ballé's learned image compression** ("End-to-end Optimized Image Compression", ICLR 2017, arXiv:1611.01704).
 - Required toolchain: ONNX model → **Aidge** (ONNX → C code, unit operators) → **LoCod** (C → HLS/HDL accelerators) → deployment on an SoC board (PS = CPU, PL = FPGA fabric).
 - Expected outcomes: measure compression performance, memory footprint and CPU load; optimize the model and the PL/PS interconnections of the auto-generated code.
 - A separate prize rewards contributions upstream to Aidge itself.
 - This repository (`Aidge-in-space-hackathon/aidge-train`, **public**) succeeds the private `EmmanuelG-tech/AIDGE-IN-SPACE` (branch `feature-----train-UI`). Scope: the training platform and the compression benchmark only; the reference notebook, the Aidge/LoCod port and the board work live in other repos. Team members launch and compare RGB trainings and configs from the Gradio UI, on a GPU server (RTX 2060 SUPER, 8 GB) deployed by CI/CD (GitHub Actions + Docker Compose). Requirements, roles and roadmap: `docs/cahier_des_charges.md` (validated 2026-10-29); read it before planning a feature.
 
-Full challenge description: `Ressources/docPDF/Plaquette_ChallengeAidge.pdf` (page 6 is this subject); related paper: `Ressources/docPDF/ERTS2026_paper_42.pdf`.
+Full challenge description: the challenge brochure (page 6 is this subject) and the related ERTS 2026 Aidge paper (HAL hal-05513843) are kept in the old private repo, not here: this repo is public, so no third-party documents. `Ressources/img/` only holds the README figures.
 
 ## Repository state
 
@@ -34,9 +34,6 @@ On Windows, set `PYTHONIOENCODING=utf-8` when running scripts from the shell (Fr
 - Tests: `tests/` (pytest) cover the benchmark and the training platform (`test_bench.py`, `test_training.py`, `test_jobs.py`, `test_ui_training.py`, plus a check that every module, class, function and method of `aidge_in_space/` has a `"""!` docstring, `test_every_definition_has_a_doxygen_docstring`); 227 tests, ~50 s (skips depend on which checkpoints and weights are present, since `test_bench.py` parametrizes over the real codecs); run in CI on every pull request, inside the CPU image (`.github/workflows/ci-cd.yml`).
 - API docs: Doxygen (`Doxyfile`, main page `docs/mainpage.md`, output `docs/html/`, git-ignored). Published to GitHub Pages by `.github/workflows/docs.yml` on push to `main`. Docstring convention for all package code: `"""! @brief ...` with `@param`, `@return`, `@throws`, `@copydoc` using fully dotted names (`@copydoc aidge_in_space.codecs.base.Codec.run`; `Codec::run` does not resolve); constants and attributes (including `self.x` in `__init__`) get a `## ...` comment on the line above. Never use `@var` inside a class docstring (Doxygen then drops the class). No local doxygen on Windows: run it in Docker (`docker run --rm -v "<repo>:/src" -w /src ubuntu:24.04 sh -c "apt-get update && apt-get install -y doxygen graphviz && doxygen Doxyfile"`).
 
-- `Ressources/Cours_d'IA/TPs/` — course Jupyter notebooks (NumPy, Pandas, linear regression, ML, deep learning) used as learning material, not project code.
-- `Ressources/Cours_d'IA/projets/` and `Ressources/Liens/` — pointers to external example projects and the kickoff meeting recording.
-- `Ressources/tuto_git/` — Git setup tutorial for the team.
 
 When adding project code, update this file with the actual build/run/test commands and architecture.
 

@@ -212,13 +212,12 @@ La carte prêtée par les partenaires n'est pas encore arrivée. D'après la pho
 
 ## Ressources
 
-### Documents du dépôt
+### Documents de référence
 
-Dossier [`Ressources/docPDF`](Ressources/docPDF) :
+Les documents de référence sont publiés en ligne ; les supports internes du challenge (plaquette, présentation de lancement, cours) restent dans le dépôt privé de l'équipe.
 
 - J. Ballé, V. Laparra, E. P. Simoncelli, *End-to-end Optimized Image Compression*, ICLR 2017 ([arXiv:1611.01704](https://arxiv.org/abs/1611.01704))
 - C. Moineau et al., *Aidge: A comprehensive and traceable library for deploying standalone embedded deep neural networks*, ERTS 2026 ([HAL](https://hal.science/hal-05513843v1/document))
-- Plaquette et présentation de lancement du Challenge Aidge
 
 ### Liens Aidge
 

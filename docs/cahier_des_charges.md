@@ -84,6 +84,5 @@ Le calendrier du challenge fixe la limite : livrables le 31 décembre 2026, sout
 
 ## Questions ouvertes
 
-- Le dépôt est public : faut-il garder dans `Ressources/` la plaquette du challenge, les supports de cours et le lien vers l'enregistrement de la réunion de lancement, qui ne sont pas à nous ?
 - Quel jeu d'images d'entraînement commun en couleur (par exemple CLIC ou DIV2K), et qui le dépose sur le serveur ?
 - Quelles variantes allégées précises : nombre de canaux, quantification, suppression des GDN ?
