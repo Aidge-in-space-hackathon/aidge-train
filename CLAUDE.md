@@ -1,0 +1,61 @@
+# CLAUDE.md
+
+This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+
+## Project context
+
+Student team repository for the **Challenge AIDGE** (embedded AI challenge, Oct 1 – Dec 31 2026; deliverables due 2026-12-31, jury defense 2027-01-14). The team is working on the **"AIDGE IN SPACE"** subject (Viveris / CNES):
+
+- Goal: optimize imaging data bandwidth between a lunar rover and the space platform by running **neural-network image compression** on a space-qualifiable **CPU/FPGA** target.
+- Model to port: **J. Ballé's learned image compression** (`Ressources/docPDF/1611.01704v3.pdf`, "End-to-end Optimized Image Compression").
+- Required toolchain: ONNX model → **Aidge** (ONNX → C code, unit operators) → **LoCod** (C → HLS/HDL accelerators) → deployment on an SoC board (PS = CPU, PL = FPGA fabric).
+- Expected outcomes: measure compression performance, memory footprint and CPU load; optimize the model and the PL/PS interconnections of the auto-generated code.
+- A separate prize rewards contributions upstream to Aidge itself.
+
+Full challenge description: `Ressources/docPDF/Plaquette_ChallengeAidge.pdf` (page 6 is this subject); related paper: `Ressources/docPDF/ERTS2026_paper_42.pdf`.
+
+## Repository state
+
+On Windows, set `PYTHONIOENCODING=utf-8` when running scripts from the shell (French labels with `é`, `≈` crash the cp1252 console otherwise; the CLI entry points reconfigure stdout themselves).
+
+- `balle2017_end2end.ipynb` — reference PyTorch implementation of Ballé 2017 (training, Kodak evaluation, arithmetic coder, profiling, ONNX export). Reads `data/` (Kodak auto-downloaded, training images in `data/train/`) and writes `outputs/` (both git-ignored). **Pedagogical support: do not modify it**; project code lives in `aidge_in_space/` (which duplicates the notebook's model/coder code on purpose).
+- `aidge_in_space/` — compression benchmark (Gradio UI + CLI) used to justify the on-board strategy:
+  - Run: `.venv\Scripts\python -m aidge_in_space.app` (http://127.0.0.1:7860; Docker: `docker compose up app`). CLI: `python -m aidge_in_space.bench --list` / `--codecs a,b --images N --mode gris|rgb --points P [--backend torch|onnxruntime|aidge] [--real-rate]`, writes `outputs/bench/<name>.csv` which the UI reloads. Tests: `python -m pytest tests`.
+  - `codecs/`: plugin registry — every module defining `codecs()` (returns `Codec` instances) is auto-discovered; tests in `tests/test_bench.py` parametrize over all registered codecs. `base.py` defines `Codec`/`Level`/`Result` and `LearnedCodec` (padding, encoder backend, real arithmetic-coded or estimated rate, decode check); everything that depends on the entropy model (on-board module, tables, encode/decode of latents) lives in a `coding.LatentCoding` subclass assigned to the codec's `coding` attribute (`FactorizedCoding` default, `HyperpriorCoding` for bmshj2018-hyperprior) — no `isinstance` dispatch on models. Models expose `in_ch`, `N`, `M`, `pad_multiple`, `downsampling`, `g_a`, `g_s`. `classical.py` (Pillow JPEG/JPEG 2000/WebP), `balle2017.py` (one codec per series = architecture + run name, from `outputs/checkpoints/bls2017_c*_N*_lambda*.pt`; each λ is a level; checkpoints without a `run` key, i.e. the notebook's, keep their key and label), `bmshj2018.py` (CompressAI pretrained factorized/hyperprior weights downloaded to `outputs/weights/`, architectures reimplemented in `nn.py` with CompressAI key names — CompressAI itself has no Windows wheel and is not a dependency).
+  - `nn.py` models/GDN/entropy models; `entropy.py` arithmetic coder + per-symbol tables (escape + 20-bit bypass); `backends.py` runs the frozen-GDN `g_a` on torch / onnxruntime / Aidge (ONNX cached in `outputs/onnx/` by weight fingerprint, 1 thread); `profiling.py` per-layer MAC/params/activations of the on-board part (`g_a`, plus `h_a`+`h_s` for the hyperprior); `metrics.py` PSNR, MS-SSIM, BD-rate.
+  - Timings run on `backends.THREADS` (1) thread: g_a via the runner, entropy coding/hyperprior/decoding inside `backends.limited_threads()`. Runner cache is LRU (`MAX_RUNNERS`), ONNX exports are atomic (tmp + rename) and pruned to `MAX_ONNX_FILES`. Benchmark campaigns never overwrite an existing CSV (`bench.campaign_name`). MS-SSIM needs a side ≥ `metrics.MS_SSIM_MIN_SIDE` (176), NaN otherwise.
+  - Gray mode with RGB-only models replicates the gray image on 3 channels (flagged in results). Aidge CPU backend is a slow reference implementation (~40x PyTorch); `aidge_core` must be imported before `aidge_backend_cpu` (DLL dependency on Windows).
+  - Gradio 6: `theme`/`css` go to `launch()`; dropdowns updated by callbacks use `.input` (user-only) to avoid change loops.
+- Environment, two equivalent ways (dependencies in `requirements.txt`):
+  - venv: `powershell -ExecutionPolicy Bypass -File scripts\setup_venv.ps1` (Windows) or `sh scripts/setup_venv.sh` (Linux/macOS), then `.venv\Scripts\jupyter lab` / `.venv/bin/jupyter lab`. PyPI torch is CPU-only on Windows; CUDA via `--index-url https://download.pytorch.org/whl/cu126`.
+  - Docker (CPU torch): `docker compose up --build` → http://localhost:8888 (repo mounted at `/workspace`, no token, bound to 127.0.0.1). Headless: `docker compose run --rm notebook jupyter nbconvert --to notebook --execute balle2017_end2end.ipynb --output-dir outputs`.
+- Aidge 0.10.1 (`aidge-core`, `-backend-cpu`, `-onnx`, `-export-cpp`, `-quantization`) is installed from PyPI via `requirements.txt` (wheels exist only for Windows and Linux x86_64). API notes for this version: `aidge_onnx.load_onnx(path)` takes no `verbose` kwarg; inference = `model.compile("cpu", aidge_core.dtype.float32, dims=[[...]])`, `aidge_core.SequentialScheduler(model).forward(data=[aidge_core.Tensor(np_array)])`, output via `model.get_ordered_outputs()[0][0].get_operator().get_output(0)`. Conv + Sqrt + Div (frozen GDN) import and match onnxruntime (~1e-7).
+- Notebook cells 17 and 19 train a test model and copy it over the main checkpoint regardless of `MODE_RAPIDE`: don't execute the notebook in place to test tooling, use a copy.
+- Tests: `tests/` (pytest) cover the benchmark and the training platform (`test_bench.py`, `test_training.py`, `test_jobs.py`, `test_ui_training.py`, plus a check that every module, class, function and method of `aidge_in_space/` has a `"""!` docstring); ~225 tests, ~50 s (skips depend on which checkpoints and weights are present, since `test_bench.py` parametrizes over the real codecs); not run in CI.
+- API docs: Doxygen (`Doxyfile`, main page `docs/mainpage.md`, output `docs/html/`, git-ignored), published to GitHub Pages by `.github/workflows/docs.yml` on push to `main`. Docstring convention for all package code: `"""! @brief ...` with `@param`, `@return`, `@throws`, `@copydoc` using fully dotted names (`@copydoc aidge_in_space.codecs.base.Codec.run`; `Codec::run` does not resolve); constants and attributes (including `self.x` in `__init__`) get a `## ...` comment on the line above. Never use `@var` inside a class docstring (Doxygen then drops the class). No local doxygen on Windows: run it in Docker (`docker run --rm -v "<repo>:/src" -w /src ubuntu:24.04 sh -c "apt-get update && apt-get install -y doxygen graphviz && doxygen Doxyfile"`).
+
+- `Ressources/Cours_d'IA/TPs/` — course Jupyter notebooks (NumPy, Pandas, linear regression, ML, deep learning) used as learning material, not project code.
+- `Ressources/Cours_d'IA/projets/` and `Ressources/Liens/` — pointers to external example projects and the kickoff meeting recording.
+- `Ressources/tuto_git/` — Git setup tutorial for the team.
+
+When adding project code, update this file with the actual build/run/test commands and architecture.
+
+## Training platform
+
+Web UI (tabs Données, Entraînement, Suivi in `ui_training.py`, plugged into the app) + SQLite queue + worker + training CLI. The UI never trains: it writes jobs, the worker runs each one in a subprocess. Contract and details: `docs/conception_entrainement.md` (source of truth). Team user guide: `docs/guide_interface.md`.
+
+- Run (Windows): `scripts\lancer_plateforme.bat` opens windows "AIDGE - worker" and "AIDGE - interface", polls http://127.0.0.1:7860 (`AIDGE_ATTENTE_MAX` s, default 120), opens the browser; no `.venv` -> points to `setup_venv.ps1`. `scripts/lancer_plateforme.sh` is the Linux/macOS equivalent. If port 7860 is taken by another program, the interface window shows a port error and the browser may open that program.
+- Manual: `python -m aidge_in_space.worker [--poll S] [--once] [--db PATH]` + `python -m aidge_in_space.app`.
+- Train CLI: `python -m aidge_in_space.train --config configs/test_rapide.yaml [--out DIR] [--device auto|cpu|cuda]` (no DB) or `--job-id N [--db PATH] [--watch-stdin]` (queue job, status `running` set by the worker). Configs: `configs/{test_rapide,standard_gris_N64,standard_gris_N128}.yaml`.
+- Docker: `docker compose up app worker` (CPU). GPU: `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build worker`; passes `docker compose config`, GPU image NOT yet built or tested (team PC has an NVIDIA card).
+- Env vars: `AIDGE_RUNS_DIR` (default `outputs/runs`, `/runs` in Docker), `AIDGE_UI_HOST` (default 127.0.0.1), `AIDGE_UI_USERS` (`login:pwd,login2:pwd2`, mandatory if host is not local), `AIDGE_UI_BIND` (Docker: host address publishing port 7860), `AIDGE_MAX_UPLOAD_MB` (default 500), `AIDGE_ATTENTE_MAX` (launcher wait, s).
+- Architecture: `training/` package (`config.py` `TrainConfig` + YAML + `PRESETS` + `schedule_for`, no torch; `loop.py` `train()`, patch bank, checkpoint, resume; `imaging.py` `to_8bit`); `jobs.py` `JobStore` (SQLite jobs/metrics/workers, `DELETE` journal not WAL, `STATUS_LABELS` in French); `worker.py` (claims jobs, log in `RUNS_DIR/<id>/train.log`, heartbeats, final status from exit code); `train.py` CLI; `ui_training.py` (pure functions + thin Gradio adapters in `build_tabs()`).
+- Exit codes of `train`: 0 done, 1 failed, 2 invalid config, 3 cancelled, 4 stopped (shutdown, status `interrupted`, resumable). Statuses: queued, running, done, failed, cancelled, interrupted; requeue from the last three resumes from the checkpoint.
+- Checkpoints: `--config` writes `bls2017_c{in_ch}_N{N}_lambda{λ}.pt` (same name as the notebook), UI jobs add `_run{id}`; keys `state_dict, cfg, history, step, optimizer, run{job_id,name,author,commit,date}`. Pass `--out` or rename the file so as not to overwrite the notebook's checkpoint (a first test did; renamed `bls2017_c1_N128_lambda2048_test.pt`).
+- Data: training sets in `data/train/<set>/`. Upload is all-or-nothing and never overwrites (`_2` suffix); zip max 10 000 files, unzipped size <= 2x `AIDGE_MAX_UPLOAD_MB`. 16-bit images are scaled on their max to 8 bits (`training/imaging.to_8bit`). First training downloads Kodak (24 images, network needed; first quick test 271 s, then ~31-75 s on CPU); offline without Kodak, eval falls back to training images with a warning.
+- Traps: SQLite locking is unreliable on a Windows folder mounted in Docker, hence the `runs` named volume; never mix a venv UI with the Docker worker (different DBs). A running training slows the PC and skews bench timings. `images.py` (bench) still converts 16-bit images without scaling (saturates): known limit. The stdin watcher thread must use `os.read(0, 1)`, not `sys.stdin.buffer.read` (crashes Python at exit on Windows). `lancer_plateforme.bat` is ASCII + CRLF on purpose. Notebook stays untouchable.
+
+## Conventions
+
+- Team communication, commit messages and resource notes are written in **French**.
+- Paths contain spaces and apostrophes (e.g. `Cours_d'IA`); quote them in shell commands.

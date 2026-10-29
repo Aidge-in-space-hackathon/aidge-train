@@ -1,0 +1,55 @@
+# Documentation du banc d'essai (aidge_in_space/) avec Doxygen.
+# Générer : doxygen Doxyfile  -> docs/html/index.html
+# Publiée sur GitHub Pages par .github/workflows/docs.yml à chaque push sur main.
+# Seules les options différentes des valeurs par défaut sont listées (doxygen -g pour la liste complète).
+
+PROJECT_NAME           = "AIDGE IN SPACE"
+PROJECT_BRIEF          = "Banc d'essai de compression d'image apprise pour l'embarqué"
+OUTPUT_DIRECTORY       = docs
+OUTPUT_LANGUAGE        = French
+
+INPUT                  = docs/mainpage.md aidge_in_space
+FILE_PATTERNS          = *.py *.md
+RECURSIVE              = YES
+EXCLUDE_PATTERNS       = */__pycache__/*
+USE_MDFILE_AS_MAINPAGE = docs/mainpage.md
+INPUT_ENCODING         = UTF-8
+
+# Python : docstrings """! ... """ avec commandes @param, @return, @throws ; attributs documentés par ##
+OPTIMIZE_OUTPUT_JAVA   = YES
+PYTHON_DOCSTRING       = YES
+JAVADOC_AUTOBRIEF      = YES
+MARKDOWN_SUPPORT       = YES
+FULL_PATH_NAMES        = NO
+SHOW_NAMESPACES        = YES
+
+# Les noms en _nom sont classés « protégés » par Doxygen et restent affichés (utile pour les sous-classes).
+# HIDE_UNDOC_MEMBERS masque les doublons que Doxygen crée quand un attribut de classe est relu via self.x ;
+# il masque aussi les oublis : la présence des docstrings est donc vérifiée par tests/test_bench.py.
+EXTRACT_ALL            = NO
+EXTRACT_PRIVATE        = NO
+EXTRACT_STATIC         = YES
+HIDE_UNDOC_MEMBERS     = YES
+
+# Avertissements (références introuvables, @param inconnus...) affichés par le workflow
+QUIET                 = YES
+WARNINGS               = YES
+WARN_IF_UNDOCUMENTED   = YES
+WARN_IF_DOC_ERROR      = YES
+WARN_NO_PARAMDOC       = NO
+WARN_AS_ERROR          = NO
+
+GENERATE_HTML          = YES
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+HTML_COLORSTYLE        = AUTO_LIGHT
+SEARCHENGINE           = YES
+
+# Diagrammes d'héritage (Codec -> LearnedCodec -> ...) si Graphviz est installé
+HAVE_DOT               = YES
+CLASS_GRAPH            = YES
+COLLABORATION_GRAPH    = NO
+CALL_GRAPH             = NO
+CALLER_GRAPH           = NO
+DOT_IMAGE_FORMAT       = svg
+INTERACTIVE_SVG        = NO

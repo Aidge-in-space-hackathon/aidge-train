@@ -1,0 +1,32 @@
+# Dépendances Python du projet (notebook balle2017_end2end.ipynb)
+# Installées par scripts/setup_venv.* (venv) et par le Dockerfile.
+
+# Calcul et modèle
+torch>=2.2
+numpy>=1.26
+pandas>=2.1
+pyyaml>=6.0
+
+# Images et figures (Pillow inclut JPEG 2000 via OpenJPEG)
+pillow>=10.0
+matplotlib>=3.8
+
+# Export et vérification ONNX (entrée d'Aidge)
+onnx>=1.16
+onnxruntime>=1.18
+
+# Aidge : import ONNX, inférence CPU, export C++, quantification.
+# Wheels publiés seulement pour Windows et Linux x86_64 : ignorés ailleurs (macOS, ARM).
+aidge-core==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+aidge-backend-cpu==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+aidge-onnx==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+aidge-export-cpp==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+aidge-quantization==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+
+# Banc d'essai (python -m aidge_in_space.app) et ses tests
+gradio>=6.0
+pytest>=8.0
+
+# Notebooks
+jupyterlab>=4.2
+ipykernel>=6.29

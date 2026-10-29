@@ -1,0 +1,3 @@
+# L'image n'a besoin que de requirements.txt : le dépôt est monté à l'exécution
+*
+!requirements.txt

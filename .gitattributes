@@ -1,0 +1,5 @@
+# Scripts shell et Dockerfile en LF, même après un clone sous Windows (sinon ils échouent sous Linux / Docker)
+*.sh text eol=lf
+Dockerfile text eol=lf
+# Scripts batch en CRLF, sinon cmd.exe peut mal lire les étiquettes et les blocs
+*.bat text eol=crlf

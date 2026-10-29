@@ -1,0 +1,4 @@
+Très bon projet des deux majors de promo:
+https://github.com/yassingdm/ai-driving-scene-analyzer
+ils avaient de très bons résultats sur leurs ia, donc tres bonne inspi pour l'entrainement et tout.
+Leur archi est pas ouf imo c'est très simpliste mais c'est ok pour le projet.

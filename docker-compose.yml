@@ -1,0 +1,60 @@
+# Plateforme AIDGE IN SPACE : banc d'essai et entraînement (app + worker), GPU NVIDIA par défaut.
+# Lancement :
+#   docker compose up --build        puis http://localhost:7860
+# Prérequis GPU : NVIDIA Container Toolkit, ou Docker Desktop + WSL2 avec pilote NVIDIA.
+# PC sans carte NVIDIA (image CPU, sans réservation GPU) :
+#   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build
+# JupyterLab (notebook de référence) : docker compose -f docker-compose.notebook.yml up --build
+# AIDGE_UI_BIND, AIDGE_UI_USERS et AIDGE_MAX_UPLOAD_MB : environnement ou fichier .env (jamais versionné).
+# Nom de projet fixe : conserve le volume « aidge-in-space_runs » et isole ce fichier du compose du notebook.
+name: aidge-in-space
+
+services:
+  # Interface Gradio. Torch CUDA est installé, mais aucune carte n'est réservée : le banc d'essai
+  # mesure volontairement sur CPU, 1 thread.
+  app:
+    # Même image CUDA pour l'app et le worker : construite une seule fois, ici
+    image: aidge-in-space:gpu
+    build:
+      context: .
+      args:
+        TORCH_INDEX: https://download.pytorch.org/whl/cu126
+    command: ["python", "-m", "aidge_in_space.app", "--host", "0.0.0.0", "--port", "7860"]
+    ports:
+      - "${AIDGE_UI_BIND:-127.0.0.1}:7860:7860"
+    environment:
+      AIDGE_RUNS_DIR: /runs
+      AIDGE_UI_BIND: ${AIDGE_UI_BIND:-127.0.0.1}
+      AIDGE_UI_USERS: ${AIDGE_UI_USERS:-}
+      AIDGE_MAX_UPLOAD_MB: ${AIDGE_MAX_UPLOAD_MB:-500}
+    # /runs est un volume nommé : le verrouillage SQLite n'est pas fiable sur un dossier Windows monté
+    volumes:
+      - .:/workspace
+      - runs:/runs
+    shm_size: 1gb
+
+  # Worker : exécute la file d'entraînement (docker compose up worker). Seul service à réserver la carte
+  # NVIDIA. Ne pas le mélanger avec une interface lancée dans le venv.
+  worker:
+    image: aidge-in-space:gpu
+    command: ["python", "-m", "aidge_in_space.worker"]
+    environment:
+      AIDGE_RUNS_DIR: /runs
+    volumes:
+      - .:/workspace
+      - runs:/runs
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]
+    restart: unless-stopped
+    # Laisse le temps à un entraînement de sauvegarder (STOP_TIMEOUT_S = 60 s côté worker)
+    stop_grace_period: 90s
+    init: true
+    shm_size: 1gb
+
+volumes:
+  runs: {}
