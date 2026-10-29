@@ -1,128 +1,94 @@
-# AIDGE IN SPACE 
+# aidge-train
 
-**Compression d'images par réseau de neurones à bord d'un rover lunaire, déployée sur une cible spatialisable CPU + FPGA avec Aidge et LoCod.**
+**Plateforme d'entraînement et banc d'essai de l'équipe AIDGE IN SPACE : entraîner, comparer et choisir le modèle de compression d'images qui ira à bord d'un rover lunaire, sur une cible CPU + FPGA.**
 
+![CI/CD](https://github.com/Aidge-in-space-hackathon/aidge-train/actions/workflows/ci-cd.yml/badge.svg)
 ![Challenge Aidge 2026](https://img.shields.io/badge/Challenge%20Aidge-2026-2ec4b6)
 ![Cas d'usage](https://img.shields.io/badge/cas%20d%27usage-Viveris%20%C3%97%20CNES-5b8def)
 ![Cible](https://img.shields.io/badge/cible-Zynq%20PS%20%2B%20PL-ff9f43)
-![Statut](https://img.shields.io/badge/statut-d%C3%A9marrage-yellow)
 ![Licence](https://img.shields.io/badge/licence-MIT-lightgrey)
 
 ![Vue d'ensemble : le rover compresse l'image avec un encodeur neuronal, transmet un train binaire réduit, la plateforme reconstruit l'image](Ressources/img/mission_overview.svg)
 
-Un rover lunaire produit beaucoup plus d'images que sa liaison radio ne peut en transmettre. Ce projet embarque à bord un **encodeur neuronal** (le modèle de compression de J. Ballé et al., ICLR 2017) qui transforme chaque image en un petit train binaire, et laisse la plateforme spatiale reconstruire l'image à l'arrivée. Le défi n'est pas seulement de compresser : il faut **prouver** que ça tient sur une carte CPU + FPGA réaliste, **mesurer** ce que ça coûte (mémoire, charge CPU, ressources FPGA) et **optimiser** le modèle comme le découpage entre processeur et logique programmable.
+Un rover lunaire produit beaucoup plus d'images que sa liaison radio ne peut en transmettre. L'équipe embarque à bord un **encodeur neuronal** (le modèle de compression de J. Ballé et al., ICLR 2017) qui transforme chaque image en un petit train binaire. Choisir ce modèle demande d'en entraîner beaucoup de variantes et de les comparer entre elles et aux codecs classiques : c'est le rôle de ce dépôt.
 
+`aidge-train` réunit une **plateforme d'entraînement** (chaque membre de l'équipe lance ses entraînements depuis le navigateur, sur une carte graphique partagée) et un **banc d'essai de compression** (débit, qualité et coût de calcul de chaque modèle, face à JPEG et JPEG 2000). Le notebook de référence, le portage Aidge et LoCod et le travail sur la carte vivent dans d'autres dépôts.
 
-> Ce README est une première version, rédigée au lancement du challenge (octobre 2026). Les sections marquées *proposition* sont des pistes de travail à valider en équipe, pas des décisions prises.
+Ce que la plateforme doit faire, pour qui et sur quelle infrastructure : [**cahier des charges**](docs/cahier_des_charges.md).
 
 ## Sommaire
 
 1. [Démarrage rapide](#démarrage-rapide)
-    1. [Option 1 : environnement virtuel Python (venv)](#option-1--environnement-virtuel-python-venv)
-    2. [Option 2 : Docker](#option-2--docker)
+    1. [En local avec Docker](#en-local-avec-docker)
+    2. [En local avec un environnement virtuel Python](#en-local-avec-un-environnement-virtuel-python)
     3. [Données et résultats](#données-et-résultats)
-    4. [Banc d'essai de compression](#banc-dessai-de-compression)
-    5. [Plateforme d'entraînement](#plateforme-dentraînement)
-2. [Le défi](#le-défi)
-3. [Pourquoi un réseau de neurones pour compresser ?](#pourquoi-un-réseau-de-neurones-pour-compresser-)
-4. [La chaîne d'outils, d'Aidge à LoCod](#la-chaîne-doutils-daidge-à-locod)
-    1. [Aidge](#aidge)
-    2. [LoCod](#locod)
-5. [Cible matérielle et répartition entre PS et PL](#cible-matérielle-et-répartition-entre-ps-et-pl)
-6. [Calendrier officiel du challenge](#calendrier-officiel-du-challenge)
-7. [Ressources](#ressources)
-    1. [Documents du dépôt](#documents-du-dépôt)
-    2. [Liens Aidge](#liens-aidge)
-    3. [Liens LoCod](#liens-locod)
-    4. [Compression apprise](#compression-apprise)
-    5. [Carte](#carte)
-8. [Licence](#licence)
+2. [Banc d'essai de compression](#banc-dessai-de-compression)
+3. [Plateforme d'entraînement](#plateforme-dentraînement)
+4. [Contribuer](#contribuer)
+5. [Déploiement](#déploiement)
+6. [Le défi](#le-défi)
+7. [Pourquoi un réseau de neurones pour compresser ?](#pourquoi-un-réseau-de-neurones-pour-compresser-)
+8. [La chaîne d'outils, d'Aidge à LoCod](#la-chaîne-doutils-daidge-à-locod)
+9. [Cible matérielle et répartition entre PS et PL](#cible-matérielle-et-répartition-entre-ps-et-pl)
+10. [Calendrier officiel du challenge](#calendrier-officiel-du-challenge)
+11. [Ressources](#ressources)
+12. [Licence](#licence)
 
 ## Démarrage rapide
 
-Le point d'entrée du projet est le notebook [`balle2017_end2end.ipynb`](balle2017_end2end.ipynb) : il réimplémente le modèle de Ballé et al. en PyTorch, l'entraîne, l'évalue sur Kodak, prouve la compression avec un vrai codeur arithmétique et exporte l'encodeur en ONNX pour Aidge.
+Une fois le serveur de l'équipe en service, la plateforme s'utilise directement dans le navigateur, sans rien installer : `aidge-train.gvrt.fr` pour l'équipe, `aidge-bench.gvrt.fr` (banc d'essai seul) pour le jury et les partenaires. Les deux options ci-dessous servent à développer ou à tester en local.
 
-Deux façons de l'exécuter, au choix :
+### En local avec Docker
 
-| | venv | Docker |
-| :- | :- | :- |
-| Prérequis | Python 3.10 ou plus récent | Docker Desktop (Windows, macOS) ou Docker Engine avec `docker compose` (Linux) |
-| Installation | une commande, environ 1 Go dans `.venv/` | une commande, image d'environ 2 Go |
-| GPU NVIDIA | possible (voir ci-dessous) | non, CPU uniquement |
-| Conseillé pour | entraîner le modèle, travailler dans VS Code | lancer le notebook sans rien installer d'autre que Docker |
-
-### Option 1 : environnement virtuel Python (venv)
-
-Depuis la racine du dépôt, le script crée `.venv/` et installe les dépendances de [`requirements.txt`](requirements.txt).
-
-**Windows (PowerShell)**
-
-```powershell
-powershell -ExecutionPolicy Bypass -File scripts\setup_venv.ps1
-.venv\Scripts\jupyter lab
-```
-
-**Linux / macOS**
-
-```bash
-sh scripts/setup_venv.sh
-.venv/bin/jupyter lab
-```
-
-JupyterLab s'ouvre dans le navigateur. Dans **VS Code**, il suffit d'ouvrir le notebook et de choisir l'interpréteur `.venv` comme noyau.
-
-Relancer le script plus tard ne recrée pas le venv : il met simplement les dépendances à jour.
-
-**GPU NVIDIA (optionnel).** Sous Windows, la version de PyTorch installée par défaut ne sait utiliser que le CPU. Pour entraîner sur GPU, remplacez-la par une version CUDA après l'installation :
-
-```powershell
-.venv\Scripts\python -m pip install torch --index-url https://download.pytorch.org/whl/cu126 --force-reinstall
-```
-
-Sous Linux, la version par défaut gère déjà CUDA. La première cellule du notebook affiche `device : cuda` quand le GPU est bien détecté.
-
-### Option 2 : Docker
-
-Depuis la racine du dépôt :
+Depuis la racine du dépôt, sur un PC avec une carte NVIDIA (NVIDIA Container Toolkit, ou Docker Desktop avec WSL2 sous Windows) :
 
 ```bash
 docker compose up --build
 ```
 
-Ouvrez ensuite <http://localhost:8888> : JupyterLab s'affiche avec le dépôt entier. Le premier build télécharge PyTorch et prend quelques minutes, les lancements suivants sont immédiats. Pour arrêter : `Ctrl+C`, puis `docker compose down`.
-
-Pour exécuter tout le notebook sans interface, par exemple sur une machine distante :
+Sur un PC sans carte NVIDIA :
 
 ```bash
-docker compose run --rm notebook jupyter nbconvert --to notebook --execute balle2017_end2end.ipynb --output-dir outputs
+docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build
 ```
 
-Le notebook exécuté, avec ses figures, est écrit dans `outputs/balle2017_end2end.ipynb`.
+Ouvrez ensuite <http://localhost:7860>. Le premier build télécharge PyTorch et prend quelques minutes. Le dépôt est **monté** dans les conteneurs (`/workspace`) : le code modifié est pris en compte au redémarrage, et `data/` et `outputs/` restent sur votre machine. Pour arrêter : `Ctrl+C`, puis `docker compose down`.
 
-Bon à savoir :
+Sous Linux, les conteneurs écrivent avec l'identifiant utilisateur 1000 : si le vôtre est différent (`id -u`), donnez-lui les droits d'écriture sur `data/` et `outputs/`.
 
-- le dépôt est **monté** dans le conteneur (`/workspace`) : les notebooks modifiés, `data/` et `outputs/` restent sur votre machine, rien n'est perdu à l'arrêt du conteneur ;
-- JupyterLab tourne **sans mot de passe**, mais il n'est joignable que depuis votre propre machine (`127.0.0.1`) ;
-- l'image utilise PyTorch **CPU** : parfait pour l'évaluation, l'export ONNX et le profilage, mais un vrai entraînement sera bien plus rapide dans un venv avec GPU ;
-- sous Linux, le conteneur écrit avec l'identifiant utilisateur 1000 : si le vôtre est différent (`id -u`), donnez-lui les droits d'écriture sur `data/` et `outputs/`.
+### En local avec un environnement virtuel Python
+
+Depuis la racine du dépôt, le script crée `.venv/` et installe les dépendances de [`requirements.txt`](requirements.txt) ; le relancer plus tard met simplement les dépendances à jour.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\setup_venv.ps1    # Windows
+scripts\lancer_plateforme.bat                                       # worker + interface + navigateur
+```
+
+```bash
+sh scripts/setup_venv.sh                                            # Linux / macOS
+sh scripts/lancer_plateforme.sh
+```
+
+Sous Windows, PyTorch installé par défaut ne sait utiliser que le CPU. Pour entraîner sur GPU :
+
+```powershell
+.venv\Scripts\python -m pip install torch --index-url https://download.pytorch.org/whl/cu126 --force-reinstall
+```
+
+Sous Linux, la version par défaut gère déjà CUDA. Ne mélangez pas une interface lancée dans le venv et un worker Docker : ils n'utilisent pas la même file d'attente.
 
 ### Données et résultats
 
-- `data/kodak/` : les 24 images de test Kodak, **téléchargées automatiquement** par le notebook au premier lancement ;
-- `data/train/` : vos images d'entraînement (png, jpg, tif, sous-dossiers acceptés). Si le dossier est vide, le notebook s'entraîne sur Kodak, ce qui suffit à valider la chaîne mais pas à obtenir un bon modèle ;
-- `outputs/` : checkpoints du modèle (`outputs/checkpoints/`), fichiers compressés et export ONNX avec ses vecteurs de test (`outputs/export/`).
+- `data/train/<jeu>/` : les jeux d'images d'entraînement (png, jpg, tif, sous-dossiers acceptés), déposés depuis l'onglet Données ou copiés à la main ;
+- `data/kodak/` : les 24 images de test Kodak, **téléchargées automatiquement** au premier entraînement ;
+- `outputs/` : checkpoints (`outputs/checkpoints/`), campagnes du banc d'essai (`outputs/bench/`), exports ONNX et poids pré-entraînés.
 
-Ces deux dossiers sont ignorés par Git. Pour un premier essai rapide, passez `MODE_RAPIDE = True` dans la cellule de configuration du notebook.
+Ces dossiers sont ignorés par Git.
 
-### Banc d'essai de compression
+## Banc d'essai de compression
 
-Le paquet [`aidge_in_space/`](aidge_in_space) compare plusieurs algorithmes et modèles de compression pour justifier ce qui ira sur la carte. Le notebook reste le support pédagogique ; le banc d'essai réutilise son modèle et ses checkpoints.
-
-```powershell
-.venv\Scripts\python -m aidge_in_space.app        # interface sur http://127.0.0.1:7860
-```
-
-Avec Docker : `docker compose up app`, puis <http://localhost:7860>.
+Le banc d'essai compare plusieurs algorithmes et modèles de compression pour justifier ce qui ira sur la carte.
 
 | Onglet | Rôle |
 | :- | :- |
@@ -131,27 +97,49 @@ Avec Docker : `docker compose up app`, puis <http://localhost:7860>.
 | Benchmark | campagnes sur un jeu d'images : courbes débit/distorsion, BD-rate, temps d'encodage, CSV |
 | Encodeur embarqué | calcul, paramètres et mémoire de la partie embarquée, couche par couche ; vérification PyTorch / ONNX Runtime / Aidge |
 
-Codecs disponibles : JPEG, JPEG 2000 et WebP (références), les modèles Ballé 2017 entraînés par le notebook (détectés dans `outputs/checkpoints/`), Ballé 2018 factorisé et hyperprior avec les poids pré-entraînés de [CompressAI](https://github.com/InterDigitalInc/CompressAI) (téléchargés au premier usage). L'encodeur des modèles appris peut tourner sur PyTorch, ONNX Runtime ou le backend CPU d'Aidge.
+Codecs disponibles : JPEG, JPEG 2000 et WebP (références), les modèles Ballé 2017 entraînés sur la plateforme (détectés dans `outputs/checkpoints/`), Ballé 2018 factorisé et hyperprior avec les poids pré-entraînés de [CompressAI](https://github.com/InterDigitalInc/CompressAI) (téléchargés au premier usage). L'encodeur des modèles appris peut tourner sur PyTorch, ONNX Runtime ou le backend CPU d'Aidge, sur un seul cœur pour des temps comparables. Un entraînement en cours sur la même machine fausse ces temps.
 
 **Ajouter un algorithme** : un fichier dans [`aidge_in_space/codecs/`](aidge_in_space/codecs) avec une fonction `codecs()` ; il apparaît seul dans l'interface, la ligne de commande et les tests (exemple dans l'onglet « Codecs et aide »).
 
-Campagnes sans interface, par exemple sur la machine d'entraînement (résultats dans `outputs/bench/`, relus par l'interface) :
+Campagnes sans interface (résultats dans `outputs/bench/`, relus par l'interface) :
 
 ```bash
 python -m aidge_in_space.bench --list
 python -m aidge_in_space.bench --codecs jpeg,jpeg2000,bmshj2018-hyperprior --images 24 --mode rgb --points 6
-python -m pytest tests                              # tests de tous les codecs enregistrés
 ```
 
-**Documentation du code** : générée par [Doxygen](https://www.doxygen.nl) (`doxygen Doxyfile`, puis `docs/html/index.html`) et publiée sur GitHub Pages à chaque push sur `main` ([workflow](.github/workflows/docs.yml)). Les docstrings commencent par `"""!` et utilisent `@brief`, `@param`, `@return`, `@throws` ; les attributs se documentent par un commentaire `##` sur la ligne précédente. Les tests vérifient que chaque fonction et classe en a une.
+## Plateforme d'entraînement
 
-### Plateforme d'entraînement
+Trois onglets s'ajoutent au banc d'essai : **Données** (déposer des images ou un zip), **Entraînement** (partir d'un préréglage ou tout régler, un job par valeur de λ) et **Suivi** (statuts, courbes, annuler, relancer). Les entraînements passent par une file d'attente et sont exécutés par un programme séparé, le *worker* ; les modèles terminés apparaissent dans le banc d'essai, à côté de JPEG.
 
-Pour entraîner des modèles sans toucher au notebook ni à un terminal, le banc d'essai contient trois onglets supplémentaires : **Données** (déposer des images ou un zip), **Entraînement** (régler et lancer, un job par valeur de λ) et **Suivi** (statuts, courbes, annuler, relancer). Les entraînements passent par une file d'attente et sont exécutés par un programme séparé, le *worker* ; les modèles terminés apparaissent dans le banc d'essai, à côté de JPEG.
+Les mêmes entraînements se lancent en ligne de commande, à partir des configurations de [`configs/`](configs) :
 
-Sous Windows, après l'installation du venv, double-cliquez sur `scripts\lancer_plateforme.bat` : il ouvre le worker et l'interface, puis le navigateur sur <http://127.0.0.1:7860>. Avec Docker : `docker compose up app worker` (variante GPU : `docker compose -f docker-compose.yml -f docker-compose.gpu.yml up --build worker`, pas encore testée). Un entraînement en cours ralentit la machine et fausse les temps mesurés par le banc d'essai.
+| Configuration | Contenu |
+| :- | :- |
+| `test_rapide.yaml`, `test_rapide_rgb.yaml` | 300 pas sur des patchs 128 × 128, pour vérifier la chaîne en quelques minutes |
+| `standard_gris_N64.yaml`, `standard_gris_N128.yaml` | entraînement complet en niveaux de gris (50 000 pas) |
+| `standard_rgb_N128.yaml`, `standard_rgb_N192.yaml` | entraînement complet en couleur (50 000 pas) ; N = 192 est le réglage de l'article pour la couleur |
+
+```bash
+python -m aidge_in_space.train --config configs/standard_rgb_N128.yaml --device cuda
+```
 
 Mode d'emploi pas à pas : [`docs/guide_interface.md`](docs/guide_interface.md). Conception détaillée : [`docs/conception_entrainement.md`](docs/conception_entrainement.md).
+
+## Contribuer
+
+On ne pousse jamais directement sur `main` : une branche par sujet, puis une pull request. La CI vérifie les tests, les fichiers compose, la construction de l'image et le démarrage de l'app et du worker ; on merge quand elle est verte.
+
+```bash
+python -m pytest tests                  # tous les tests (environ une minute)
+python -m pytest tests/test_jobs.py -q  # un fichier
+```
+
+Les messages de commit, la documentation et les libellés de l'interface sont en français. Chaque module, classe, fonction et méthode a une docstring Doxygen (`"""! @brief ...`, `@param`, `@return`, `@throws`) et chaque constante ou attribut un commentaire `##` sur la ligne précédente : un test le vérifie. La documentation du code est générée par [Doxygen](https://www.doxygen.nl) (`doxygen Doxyfile`, puis `docs/html/index.html`) et publiée sur GitHub Pages à chaque push sur `main` ([workflow](.github/workflows/docs.yml)).
+
+## Déploiement
+
+Le serveur de l'équipe est une VM du homelab avec une RTX 2060 SUPER. Au merge sur `main`, la CI publie les images sur GHCR et un runner installé dans la VM les déploie, vérifie que l'interface répond et revient à la version précédente sinon. Mise en place et exploitation : [`docs/deploiement.md`](docs/deploiement.md).
 
 ## Le défi
 
