@@ -1,0 +1,56 @@
+# Génère la documentation Doxygen et la publie sur GitHub Pages.
+# Prérequis (une fois) : Settings > Pages > Source = « GitHub Actions ».
+name: Documentation
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "aidge_in_space/**"
+      - "docs/**"
+      - "Doxyfile"
+      - ".github/workflows/docs.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Installer Doxygen et Graphviz
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends doxygen graphviz
+
+      - name: Générer la documentation
+        # La traduction française de Doxygen n'est plus tenue à jour : cet avertissement est ignoré
+        run: |
+          doxygen Doxyfile 2> doxygen-log.txt
+          grep -v -e 'output language "french"' -e 'since release' -e 'may appear in English' -e '^[[:space:]]*$' \
+            doxygen-log.txt > doxygen-warnings.txt || true
+          if [ -s doxygen-warnings.txt ]; then
+            echo "::warning::Doxygen a signalé des problèmes de documentation"
+            cat doxygen-warnings.txt
+          fi
+
+      - uses: actions/upload-pages-artifact@v3
+        with:
+          path: docs/html
+
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - id: deployment
+        uses: actions/deploy-pages@v4
