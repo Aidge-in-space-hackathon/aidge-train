@@ -1,0 +1,12 @@
+# Surcharge GPU du déploiement serveur : le worker de docker-compose.prod.yml réserve la carte NVIDIA.
+# Ajoutée automatiquement par scripts/deploy.sh pour les tags gpu-<sha>.
+# Prérequis sur le serveur : pilote NVIDIA et NVIDIA Container Toolkit.
+services:
+  worker:
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 1
+              capabilities: [gpu]

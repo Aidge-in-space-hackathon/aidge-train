@@ -1,0 +1,186 @@
+# Intégration et déploiement continus de la plateforme aidge-train
+#
+# Pull request : validation des fichiers compose, build de l'image CPU, tests, démarrage de l'app et du worker.
+# Push sur main : en plus, publication des images CPU et GPU sur GHCR (ghcr.io/<propriétaire>/<dépôt>),
+# puis déploiement sur le serveur par un runner auto-hébergé : le serveur va chercher le travail chez
+# GitHub, aucun port entrant à ouvrir sur la box ni sur le VPN.
+# Le déploiement ne s'exécute que si la variable de dépôt DEPLOY_ENABLED vaut "true".
+# Dépôt public : les workflows des contributeurs externes doivent attendre une approbation
+# (organisation, Settings > Actions > General), sinon une pull request venue d'un fork pourrait
+# viser le runner du homelab.
+# Mise en place pas à pas : docs/deploiement.md
+name: CI/CD
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ["**.md", "docs/**", "Ressources/**"]
+  pull_request:
+    paths-ignore: ["**.md", "docs/**", "Ressources/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: cicd-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: Tests (image CPU)
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validation des fichiers compose
+        env:
+          AIDGE_IMAGE: ghcr.io/exemple/aidge-in-space
+          AIDGE_TAG: ci
+        run: |
+          docker compose -f docker-compose.yml config -q
+          docker compose -f docker-compose.yml -f docker-compose.cpu.yml config -q
+          docker compose -f docker-compose.prod.yml config -q
+          docker compose -f docker-compose.prod.yml -f docker-compose.prod.gpu.yml config -q
+          bash -n scripts/deploy.sh
+
+      - uses: docker/setup-buildx-action@v3
+
+      # Les runners GitHub n'ont pas de GPU : tests sur l'image CPU, même Dockerfile que l'image GPU
+      - name: Build de l'image CPU
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: TORCH_INDEX=https://download.pytorch.org/whl/cpu
+          tags: aidge-in-space:ci
+          load: true
+          cache-from: type=gha,scope=cpu
+          cache-to: type=gha,mode=max,scope=cpu
+
+      # pytest fait partie de requirements.txt ; les tests du banc d'essai téléchargent les poids
+      # pré-entraînés de CompressAI au premier usage
+      - name: Tests
+        run: docker run --rm aidge-in-space:ci python -m pytest -q tests
+
+      - name: Démarrage de l'interface
+        run: |
+          docker run -d --name aidge-app -p 127.0.0.1:7860:7860 \
+            -e AIDGE_RUNS_DIR=/runs -e AIDGE_UI_BIND=127.0.0.1 \
+            aidge-in-space:ci python -m aidge_in_space.app --host 0.0.0.0 --port 7860
+          for _ in $(seq 1 60); do
+            if curl -fsS -o /dev/null http://127.0.0.1:7860/; then
+              echo "Interface joignable"
+              exit 0
+            fi
+            [ "$(docker inspect -f '{{.State.Running}}' aidge-app)" = "true" ] || break
+            sleep 3
+          done
+          docker logs aidge-app
+          exit 1
+
+      - name: Démarrage du worker
+        run: |
+          docker run -d --name aidge-worker -e AIDGE_RUNS_DIR=/runs \
+            aidge-in-space:ci python -m aidge_in_space.worker
+          sleep 20
+          docker logs aidge-worker
+          [ "$(docker inspect -f '{{.State.Running}}' aidge-worker)" = "true" ]
+
+  publish:
+    name: Publication (${{ matrix.variant }})
+    needs: test
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - variant: cpu
+            torch_index: https://download.pytorch.org/whl/cpu
+            floating_tag: latest
+          - variant: gpu
+            torch_index: https://download.pytorch.org/whl/cu126
+            floating_tag: gpu
+    steps:
+      - uses: actions/checkout@v4
+
+      # L'image CUDA pèse plusieurs Go : on libère de la place sur le runner
+      - name: Place disque
+        if: matrix.variant == 'gpu'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          docker system prune -af
+          df -h /
+
+      # GHCR exige un nom en minuscules
+      - name: Nom de l'image
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - uses: docker/setup-buildx-action@v3
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # Tag immuable <variante>-<sha> (celui que l'on déploie) et tag flottant (latest ou gpu)
+      - uses: docker/build-push-action@v6
+        with:
+          context: .
+          build-args: TORCH_INDEX=${{ matrix.torch_index }}
+          push: true
+          tags: |
+            ${{ env.IMAGE }}:${{ matrix.variant }}-${{ github.sha }}
+            ${{ env.IMAGE }}:${{ matrix.floating_tag }}
+          labels: |
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.opencontainers.image.revision=${{ github.sha }}
+          cache-from: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.variant }}
+          cache-to: type=registry,ref=${{ env.IMAGE }}:buildcache-${{ matrix.variant }},mode=max
+
+  deploy:
+    name: Déploiement
+    needs: publish
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main' && vars.DEPLOY_ENABLED == 'true'
+    # Runner auto-hébergé installé sur le serveur, avec l'étiquette aidge-deploy
+    runs-on: [self-hosted, linux, aidge-deploy]
+    timeout-minutes: 30
+    environment: production
+    # Un seul déploiement à la fois, jamais interrompu en cours de route
+    concurrency:
+      group: deploy-production
+      cancel-in-progress: false
+    permissions:
+      contents: read
+      packages: read
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            docker-compose.prod.yml
+            docker-compose.prod.gpu.yml
+            scripts/deploy.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Nom de l'image
+        run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      # Jeton du job : suffit pour tirer une image privée, déconnexion automatique en fin de job
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Mise à jour des conteneurs
+        shell: bash
+        env:
+          AIDGE_TAG: ${{ vars.AIDGE_VARIANT || 'gpu' }}-${{ github.sha }}
+          DEPLOY_DIR: ${{ vars.DEPLOY_DIR || '/opt/aidge-train' }}
+        run: AIDGE_IMAGE="$IMAGE" bash scripts/deploy.sh

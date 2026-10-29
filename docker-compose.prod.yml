@@ -1,0 +1,59 @@
+# Déploiement serveur de la plateforme AIDGE IN SPACE (app + worker), à partir des images publiées sur GHCR.
+# Utilisé par scripts/deploy.sh (job « deploy » de la CI), pas pour le développement local.
+# Différences avec docker-compose.yml : image tirée du registre au lieu d'être construite, pas de montage
+# du dépôt (le code est dans l'image), données et résultats dans des volumes nommés, redémarrage
+# automatique, contrôle de santé de l'interface, journaux plafonnés.
+# Carte NVIDIA pour le worker : ajouter docker-compose.prod.gpu.yml.
+# AIDGE_IMAGE et AIDGE_TAG : release.env, écrit par scripts/deploy.sh.
+# AIDGE_UI_BIND, AIDGE_UI_USERS et AIDGE_MAX_UPLOAD_MB : fichier .env du dossier de déploiement (jamais versionné).
+name: aidge-train-prod
+
+x-aidge: &aidge
+  image: ${AIDGE_IMAGE:?AIDGE_IMAGE manquante}:${AIDGE_TAG:?AIDGE_TAG manquante}
+  volumes:
+    - runs:/runs
+    - data:/workspace/data
+    - outputs:/workspace/outputs
+    - cache:/home/aidge/.cache
+  restart: unless-stopped
+  init: true
+  shm_size: 1gb
+  logging:
+    driver: json-file
+    options:
+      max-size: "10m"
+      max-file: "3"
+
+services:
+  app:
+    <<: *aidge
+    command: ["python", "-m", "aidge_in_space.app", "--host", "0.0.0.0", "--port", "7860"]
+    ports:
+      - "${AIDGE_UI_BIND:-127.0.0.1}:7860:7860"
+    environment:
+      AIDGE_RUNS_DIR: /runs
+      AIDGE_UI_BIND: ${AIDGE_UI_BIND:-127.0.0.1}
+      AIDGE_UI_USERS: ${AIDGE_UI_USERS:-}
+      AIDGE_MAX_UPLOAD_MB: ${AIDGE_MAX_UPLOAD_MB:-500}
+    # Sert à « docker compose up --wait » : le déploiement n'est validé que si l'interface répond
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 90s
+      start_interval: 5s
+      retries: 3
+
+  worker:
+    <<: *aidge
+    command: ["python", "-m", "aidge_in_space.worker"]
+    environment:
+      AIDGE_RUNS_DIR: /runs
+    # Laisse le temps à un entraînement de sauvegarder (STOP_TIMEOUT_S = 60 s côté worker)
+    stop_grace_period: 90s
+
+volumes:
+  runs: {}
+  data: {}
+  outputs: {}
+  cache: {}

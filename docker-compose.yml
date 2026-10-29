@@ -1,12 +1,11 @@
-# Plateforme AIDGE IN SPACE : banc d'essai et entraînement (app + worker), GPU NVIDIA par défaut.
+# Plateforme aidge-train : banc d'essai et entraînement (app + worker), GPU NVIDIA par défaut.
 # Lancement :
 #   docker compose up --build        puis http://localhost:7860
 # Prérequis GPU : NVIDIA Container Toolkit, ou Docker Desktop + WSL2 avec pilote NVIDIA.
 # PC sans carte NVIDIA (image CPU, sans réservation GPU) :
 #   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build
-# JupyterLab (notebook de référence) : docker compose -f docker-compose.notebook.yml up --build
 # AIDGE_UI_BIND, AIDGE_UI_USERS et AIDGE_MAX_UPLOAD_MB : environnement ou fichier .env (jamais versionné).
-# Nom de projet fixe : conserve le volume « aidge-in-space_runs » et isole ce fichier du compose du notebook.
+# Nom de projet fixe : conserve le volume « aidge-in-space_runs » d'une version à l'autre.
 name: aidge-in-space
 
 services:

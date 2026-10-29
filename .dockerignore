@@ -1,3 +1,19 @@
-# L'image n'a besoin que de requirements.txt : le dépôt est monté à l'exécution
-*
-!requirements.txt
+# Exclus du contexte de build : l'image ne contient que le code et ce qu'il faut pour l'exécuter
+.git
+.github
+.venv
+venv
+**/__pycache__
+**/*.pyc
+.pytest_cache
+**/.ipynb_checkpoints
+
+# Données, résultats, documentation et ressources : volumes ou dépôt, jamais dans l'image
+data
+outputs
+docs
+Ressources
+
+# Réglages locaux (secrets, adresses), jamais versionnés ni copiés
+.env
+*.env
