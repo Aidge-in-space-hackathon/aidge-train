@@ -1,0 +1,4 @@
+# Étiquette du runner auto-hébergé du serveur, utilisée par le job « deploy » de ci-cd.yml
+self-hosted-runner:
+  labels:
+    - aidge-deploy
