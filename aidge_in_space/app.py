@@ -215,6 +215,17 @@ def explore(dataset, name, upload, mode, key, level_idx, backend, real_rate):
 
 # ---------------------------------------------------------------- onglet Benchmark
 
+def image_count_slider(n):
+    """! @brief Bornes du curseur « Nombre d'images » pour un jeu de @p n images.
+
+    Gradio refuse un curseur dont le minimum égale le maximum : le maximum vaut au moins 2, même pour
+    un jeu vide ou d'une seule image (le benchmark prend alors les images qui existent).
+    @param n  Nombre d'images du jeu.
+    @return Dictionnaire @c maximum et @c value, à passer à gr.Slider ou à gr.update.
+    """
+    return {"maximum": max(2, n), "value": min(4, max(1, n))}
+
+
 def run_benchmark(dataset, n_images, mode, keys, points, backend, real_rate, name, ref, metric,
                   progress=gr.Progress()):
     """! @brief Onglet « Benchmark » : lance une campagne, l'enregistre et l'affiche.
@@ -586,8 +597,7 @@ def build():
                 with gr.Row():
                     with gr.Column(scale=1, min_width=280):
                         b_dataset = gr.Dropdown(ds, value=ds0, label="Jeu d'images")
-                        b_n = gr.Slider(1, max(1, len(imgs0)), value=min(4, max(1, len(imgs0))), step=1,
-                                        label="Nombre d'images")
+                        b_n = gr.Slider(1, step=1, label="Nombre d'images", **image_count_slider(len(imgs0)))
                         b_keys = gr.CheckboxGroup(codec_choices("gris"), value=[v for _, v in codec_choices("gris")],
                                                   label="Codecs")
                         b_points = gr.Slider(2, 12, value=6, step=1, label="Points par courbe")
@@ -608,8 +618,7 @@ def build():
                         fig_time = gr.Plot(label="Temps d'encodage")
                         agg_table = gr.Dataframe(label="Points des courbes (moyennes sur les images)")
                         csv_file = gr.File(label="CSV de la campagne")
-                b_dataset.change(lambda d: gr.update(maximum=max(1, len(image_choices(d))),
-                                                     value=min(4, max(1, len(image_choices(d))))), b_dataset, b_n)
+                b_dataset.change(lambda d: gr.update(**image_count_slider(len(image_choices(d)))), b_dataset, b_n)
                 show_outputs = [fig_psnr, fig_ssim, fig_time, bd, agg_table, ref, csv_file]
                 b_go.click(run_benchmark, [b_dataset, b_n, mode, b_keys, b_points, backend, real_rate, b_name, ref,
                                            metric], [b_status, runs] + show_outputs, api_name="benchmark")

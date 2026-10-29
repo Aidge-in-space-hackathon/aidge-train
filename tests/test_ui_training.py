@@ -742,3 +742,10 @@ def test_session_neuve_voit_jeu_et_checkpoint_crees_apres_build(store, tmp_path,
     finally:
         monkeypatch.undo()
         discover()
+
+
+def test_curseur_nombre_d_images_jamais_degenere():
+    from aidge_in_space.app import image_count_slider
+    assert image_count_slider(0) == {"maximum": 2, "value": 1}
+    assert image_count_slider(1) == {"maximum": 2, "value": 1}
+    assert image_count_slider(24) == {"maximum": 24, "value": 4}
