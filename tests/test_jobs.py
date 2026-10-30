@@ -516,7 +516,11 @@ ENFANT_SOURD = textwrap.dedent('''
 
 
 def _pid_vivant(pid):
-    """Vrai si le processus existe encore."""
+    """Vrai si le processus existe encore (un zombie compte comme mort).
+
+    Sans init dans le conteneur (docker run sans --init), pytest est le PID 1 et ne récupère pas le
+    petit-fils orphelin tué : il reste zombie et os.kill(pid, 0) réussit encore.
+    """
     if os.name == "nt":
         res = subprocess.run(["tasklist", "/FI", f"PID eq {pid}", "/NH"], capture_output=True, text=True)
         return str(pid) in res.stdout.split()
@@ -524,7 +528,11 @@ def _pid_vivant(pid):
         os.kill(pid, 0)
     except OSError:
         return False
-    return True
+    try:
+        with open(f"/proc/{pid}/stat", encoding="ascii", errors="replace") as f:
+            return f.read().rsplit(")", 1)[1].split()[0] != "Z"
+    except (OSError, IndexError):
+        return True
 
 
 def _forcer_fin(*pids):

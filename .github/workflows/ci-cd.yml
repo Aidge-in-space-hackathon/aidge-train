@@ -58,9 +58,11 @@ jobs:
           cache-to: type=gha,mode=max,scope=cpu
 
       # pytest fait partie de requirements.txt ; les tests du banc d'essai téléchargent les poids
-      # pré-entraînés de CompressAI au premier usage
+      # pré-entraînés de CompressAI au premier usage.
+      # --init comme « init: true » des fichiers compose : sans lui, pytest est le PID 1 et les
+      # petits-fils tués par les tests du worker restent zombies.
       - name: Tests
-        run: docker run --rm aidge-in-space:ci python -m pytest -q tests
+        run: docker run --rm --init aidge-in-space:ci python -m pytest -q tests
 
       - name: Démarrage de l'interface
         run: |
@@ -80,7 +82,7 @@ jobs:
 
       - name: Démarrage du worker
         run: |
-          docker run -d --name aidge-worker -e AIDGE_RUNS_DIR=/runs \
+          docker run -d --init --name aidge-worker -e AIDGE_RUNS_DIR=/runs \
             aidge-in-space:ci python -m aidge_in_space.worker
           sleep 20
           docker logs aidge-worker
