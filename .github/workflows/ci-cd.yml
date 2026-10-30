@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Validation des fichiers compose
         env:
@@ -108,7 +108,7 @@ jobs:
             torch_index: https://download.pytorch.org/whl/cu126
             floating_tag: gpu
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       # L'image CUDA pèse plusieurs Go : on libère de la place sur le runner
       - name: Place disque
@@ -161,7 +161,7 @@ jobs:
       contents: read
       packages: read
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           sparse-checkout: |
             docker-compose.prod.yml
