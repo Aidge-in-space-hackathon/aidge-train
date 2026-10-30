@@ -2,7 +2,7 @@
 # Installées par scripts/setup_venv.* (venv) et par le Dockerfile.
 
 # Calcul et modèle
-torch>=2.2
+torch>=2.14.1
 numpy>=1.26
 pandas>=2.1
 pyyaml>=6.0
