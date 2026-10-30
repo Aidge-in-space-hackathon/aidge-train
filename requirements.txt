@@ -28,5 +28,5 @@ gradio>=6.0
 pytest>=8.0
 
 # Notebooks
-jupyterlab>=4.2
+jupyterlab>=4.6.4
 ipykernel>=7.4.0
