@@ -48,7 +48,7 @@ jobs:
 
       # Les runners GitHub n'ont pas de GPU : tests sur l'image CPU, même Dockerfile que l'image GPU
       - name: Build de l'image CPU
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@v7
         with:
           context: .
           build-args: TORCH_INDEX=https://download.pytorch.org/whl/cpu
@@ -129,7 +129,7 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       # Tag immuable <variante>-<sha> (celui que l'on déploie) et tag flottant (latest ou gpu)
-      - uses: docker/build-push-action@v6
+      - uses: docker/build-push-action@v7
         with:
           context: .
           build-args: TORCH_INDEX=${{ matrix.torch_index }}
