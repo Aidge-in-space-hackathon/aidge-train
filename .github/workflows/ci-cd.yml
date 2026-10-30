@@ -40,7 +40,6 @@ jobs:
           AIDGE_TAG: ci
         run: |
           docker compose -f docker-compose.yml config -q
-          docker compose -f docker-compose.yml -f docker-compose.cpu.yml config -q
           docker compose -f docker-compose.prod.yml config -q
           docker compose -f docker-compose.prod.yml -f docker-compose.prod.gpu.yml config -q
           bash -n scripts/deploy.sh

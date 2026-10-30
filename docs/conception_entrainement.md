@@ -268,7 +268,7 @@ série de slug `run`.
 1. **Données.** `train_paths = list_images(resolve_path(cfg.train_dir))`. Si vide : repli sur les
    images d'évaluation (comme le notebook, avertissement « entraînement sur les images d'évaluation :
    scores optimistes ») **seulement si** `resolve_path(cfg.train_dir) == config.TRAIN_DIR` (dossier
-   racine `data/train`, valeur par défaut des fichiers `configs/`) ; sinon `ConfigError("aucune image
+   racine `data/train`, valeur par défaut de `train_dir`) ; sinon `ConfigError("aucune image
    dans <dossier>")`.
 2. **Évaluation (règle de repli Kodak).** `eval_paths = list_images(resolve_path(cfg.eval_dir))`.
    Si vide et que `eval_dir` désigne `config.KODAK_DIR`, appel de `download_kodak(config.KODAK_DIR)`
@@ -346,7 +346,7 @@ python -m aidge_in_space.train (--config FICHIER.yaml | --job-id N) [--db CHEMIN
 
 | Argument | Rôle |
 | :- | :- |
-| `--config FICHIER` | configuration YAML (`TrainConfig.from_yaml`) ; si `name` est vide, il est remplacé par le nom du fichier sans extension (`Path(FICHIER).stem`, par exemple `test_rapide`) ; checkpoint sans suffixe `_run` ; `run["job_id"] = None` |
+| `--config FICHIER` | configuration YAML (`TrainConfig.from_yaml`) ; si `name` est vide, il est remplacé par le nom du fichier sans extension (`Path(FICHIER).stem`, par exemple `mon_essai` pour `mon_essai.yaml`) ; checkpoint sans suffixe `_run` ; `run["job_id"] = None` |
 | `--job-id N` | job de la base ; exclusif avec `--config` (l'un des deux est obligatoire) |
 | `--db CHEMIN` | base (défaut `config.RUNS_DIR / "runs.sqlite"`) ; utilisé avec `--job-id` |
 | `--out DOSSIER` | dossier des checkpoints (défaut `config.CKPT_DIR`) ; sert aux essais et aux tests |
@@ -773,8 +773,8 @@ volumes:
   neuf hérite du propriétaire du dossier de l'image ; sans cela, `/runs` appartient à root et la base
   ne peut pas être créée).
 - **Mis à jour depuis** : `docker-compose.gpu.yml` n'existe plus. `docker-compose.yml` est désormais
-  la variante GPU (image CUDA `aidge-in-space:gpu`, seul le `worker` réserve la carte NVIDIA) et
-  `docker-compose.cpu.yml` la surcharge pour les PC sans carte NVIDIA (image CPU, `deploy: !reset null`).
+  la variante GPU (image CUDA `aidge-in-space:gpu`, seul le `worker` réserve la carte NVIDIA).
+  `docker-compose.cpu.yml` a été retiré : sans carte NVIDIA, la plateforme se lance dans le venv.
   La production utilise les images publiées par la CI (`docker-compose.prod.yml`, voir `deploiement.md`).
 - **Mis à jour depuis** : l'image embarque le code (`COPY` dans le Dockerfile) pour pouvoir être
   publiée ; en local, les fichiers compose montent toujours le dépôt sur `/workspace` par-dessus.
@@ -875,10 +875,6 @@ Une relance garde l'id : le checkpoint `…_run{id}.pt` est repris au dernier pa
 ## 5. Arborescence des fichiers produits
 
 ```
-configs/                                       (versionné)
-  test_rapide.yaml
-  standard_gris_N128.yaml
-  standard_gris_N64.yaml
 data/train/<nom>/*.png|jpg|…                   onglet Données (ignoré par Git)
 outputs/runs/                                  RUNS_DIR en venv ; /runs (volume nommé) en Docker
   runs.sqlite                                  JobStore (+ runs.sqlite-journal pendant une écriture)
@@ -892,7 +888,7 @@ outputs/checkpoints/
 
 ---
 
-## 6. Préréglages et fichiers `configs/*.yaml`
+## 6. Préréglages
 
 `training/config.py` :
 
@@ -916,14 +912,9 @@ PRESETS = {
 Quel que soit le préréglage, `launch_jobs` applique `schedule_for(steps)` (cohérent avec les deux
 préréglages par construction).
 
-Fichiers (champs dans l'ordre de `TrainConfig`, lisibles par `TrainConfig.from_yaml`, cohérents avec
-`PRESETS` ; un test le vérifie) :
-
-| Fichier | Contenu |
-| :- | :- |
-| `configs/test_rapide.yaml` | `name: test-rapide`, `author: ""`, `train_dir: data/train`, `eval_dir: data/kodak`, `lmbda: 2048`, puis `PRESETS["test_rapide"]`. Moins de 3 min sur CPU, chronométré réellement |
-| `configs/standard_gris_N128.yaml` | `name: standard-gris-n128`, `lmbda: 2048`, puis `PRESETS["standard"]` |
-| `configs/standard_gris_N64.yaml` | `name: standard-gris-n64`, `lmbda: 2048`, puis `PRESETS["standard"]` avec `N: 64` |
+**Mis à jour depuis** : le dossier versionné `configs/` a été retiré. `train --config` accepte tout
+fichier YAML dont les champs sont ceux de `TrainConfig` (lu par `TrainConfig.from_yaml`), par exemple
+`name`, `train_dir: data/train`, `eval_dir: data/kodak`, `lmbda: 2048` puis les valeurs d'un préréglage.
 
 Avec `train_dir: data/train` vide, la règle de repli du § 2.3.1 entraîne sur Kodak (comme le notebook ;
 téléchargement de Kodak avec accès réseau, accepté).
@@ -990,7 +981,7 @@ Critères de la section 7 du brief, avec la partie du contrat qui y répond.
 | n° | Critère | Couvert par |
 | :- | :- | :- |
 | 1 | `python -m pytest tests` passe en entier dans le venv Windows | tests du § 7 ; docstrings partout ; `test_bench.py` inchangé, rendu sûr par le choix des λ du scénario (§ 8) |
-| 2 | `python -m aidge_in_space.train --config configs/test_rapide.yaml` termine en moins de 3 min sur CPU, et le modèle apparaît dans `python -m aidge_in_space.bench --list` | § 2.4 et § 6 : checkpoint `bls2017_c1_N128_lambda2048.pt` avec `run.name = "test-rapide"`, donc codec de série `balle2017-c1-n128-test-rapide` (§ 2.9) ; repli Kodak si `data/train` est vide |
+| 2 | `python -m aidge_in_space.train --config <fichier>.yaml` (valeurs de `PRESETS["test_rapide"]`) termine en moins de 3 min sur CPU, et le modèle apparaît dans `python -m aidge_in_space.bench --list` | § 2.4 et § 6 : checkpoint `bls2017_c1_N128_lambda2048.pt` avec `run.name = "test-rapide"`, donc codec de série `balle2017-c1-n128-test-rapide` (§ 2.9) ; repli Kodak si `data/train` est vide |
 | 3 | Scénario de bout en bout exécuté réellement (détail ci-dessous) | §§ 2.4 à 2.9 |
 | 4 | `docker compose up app worker` fonctionne en CPU ; variante GPU documentée et validée par `docker compose config` | § 2.10 |
 | 5 | `git diff --stat -- balle2017_end2end.ipynb` vide | aucun agent ne possède le notebook (§ 7) |

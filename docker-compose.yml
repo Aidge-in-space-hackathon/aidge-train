@@ -2,8 +2,7 @@
 # Lancement :
 #   docker compose up --build        puis http://localhost:7860
 # Prérequis GPU : NVIDIA Container Toolkit, ou Docker Desktop + WSL2 avec pilote NVIDIA.
-# PC sans carte NVIDIA (image CPU, sans réservation GPU) :
-#   docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build
+# PC sans carte NVIDIA : le worker ne peut pas démarrer, utiliser le venv (scripts/setup_venv.ps1).
 # AIDGE_UI_BIND, AIDGE_UI_USERS et AIDGE_MAX_UPLOAD_MB : environnement ou fichier .env (jamais versionné).
 # Nom de projet fixe : conserve le volume « aidge-in-space_runs » d'une version à l'autre.
 name: aidge-in-space

@@ -13,7 +13,7 @@ Le contexte du projet et l'installation sont décrits dans le README du dépôt.
 | Campagne sans interface | `python -m aidge_in_space.bench --codecs jpeg,bmshj2018-hyperprior --images 24 --mode rgb` |
 | Tests | `python -m pytest tests` |
 | Plateforme d'entraînement : worker | `python -m aidge_in_space.worker` |
-| Entraînement en ligne de commande | `python -m aidge_in_space.train --config configs/test_rapide.yaml` |
+| Entraînement en ligne de commande | `python -m aidge_in_space.train --config mon_essai.yaml` |
 | Cette documentation | `doxygen Doxyfile` puis `docs/html/index.html` |
 
 ## Organisation

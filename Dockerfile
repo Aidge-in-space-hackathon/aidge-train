@@ -1,12 +1,12 @@
 # Image de la plateforme aidge-train (PyTorch CPU par défaut) : banc d'essai, entraînement, worker
 # Plateforme (app + worker, image CUDA aidge-in-space:gpu) : docker compose up --build   puis http://localhost:7860
-# Plateforme sans carte NVIDIA (image CPU) : docker compose -f docker-compose.yml -f docker-compose.cpu.yml up --build
+# PC sans carte NVIDIA : utiliser le venv (scripts/setup_venv.ps1), le worker de docker-compose.yml réserve le GPU
 # Serveur : images publiées par la CI sur GHCR, voir docs/deploiement.md
 FROM python:3.11-slim
 
 # Index PyTorch : version CPU par défaut du Dockerfile (image ~4 fois plus légère que la version CUDA).
 # docker-compose.yml le fixe à https://download.pytorch.org/whl/cu126 (image CUDA) pour la plateforme ;
-# docker-compose.cpu.yml utilise l'index CPU.
+# la CI construit l'image CPU (tests) et les deux variantes publiées sur GHCR.
 ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
