@@ -44,7 +44,7 @@ jobs:
           docker compose -f docker-compose.prod.yml -f docker-compose.prod.gpu.yml config -q
           bash -n scripts/deploy.sh
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       # Les runners GitHub n'ont pas de GPU : tests sur l'image CPU, même Dockerfile que l'image GPU
       - name: Build de l'image CPU
@@ -120,7 +120,7 @@ jobs:
       - name: Nom de l'image
         run: echo "IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
 
-      - uses: docker/setup-buildx-action@v3
+      - uses: docker/setup-buildx-action@v4
 
       - uses: docker/login-action@v3
         with:
