@@ -4,7 +4,7 @@
 # Calcul et modèle
 torch>=2.2
 numpy>=1.26
-pandas>=2.1
+pandas>=3.1.0
 pyyaml>=6.0
 
 # Images et figures (Pillow inclut JPEG 2000 via OpenJPEG)
