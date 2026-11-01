@@ -1,4 +1,6 @@
-# Mises à jour proposées chaque semaine en pull request, vérifiées par la même CI que le reste
+# Mises à jour proposées chaque semaine en pull request, vérifiées par la même CI que le reste.
+# Les mineures sont groupées en une seule pull request par écosystème, fusionnée automatiquement si la CI
+# réussit (job automerge de ci-cd.yml). Les majeures restent une par une, à valider à la main.
 version: 2
 updates:
   - package-ecosystem: pip
@@ -8,6 +10,9 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps"
+    groups:
+      pip-mineures:
+        update-types: [minor, patch]
     # numpy 2.5 et plus exigent Python 3.12, l'image est en 3.11 : à retirer en changeant de version de Python
     ignore:
       - dependency-name: numpy
@@ -18,6 +23,9 @@ updates:
       interval: weekly
     commit-message:
       prefix: "ci"
+    groups:
+      actions-mineures:
+        update-types: [minor, patch]
   - package-ecosystem: docker
     directory: /
     schedule:
