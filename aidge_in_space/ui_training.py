@@ -1,4 +1,4 @@
-"""! @brief Onglets Données, Entraînement et Suivi de l'interface Gradio.
+"""! @brief Onglets « Entraîner » (avec l'ajout d'images) et « Suivre » de l'interface Gradio.
 
 L'interface n'entraîne jamais elle-même : elle écrit des jobs dans la file (aidge_in_space.jobs.JobStore)
 et lit leurs statuts, leurs métriques et leurs journaux. Toute la logique est dans des fonctions pures,
@@ -55,7 +55,7 @@ MAX_ZIP_FILES = 10_000
 ## Noms réservés de Windows, refusés tels quels.
 WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
                     *(f"LPT{i}" for i in range(1, 10))}
-## Période de rafraîchissement de l'onglet Suivi, en secondes.
+## Période de rafraîchissement de l'onglet Suivre, en secondes.
 REFRESH_S = 5
 ## Nombre de vignettes montrées par jeu d'images.
 N_SAMPLES = 6
@@ -69,7 +69,7 @@ MAX_WARNINGS = 5
 _CHUNK = 1 << 20
 
 
-# ---------------------------------------------------------------- onglet Données
+# ---------------------------------------------------------------- jeux d'images
 
 def max_upload_mb():
     """! @brief Taille maximale d'un envoi, en Mo.
@@ -495,12 +495,6 @@ def dataset_choices(train_dir=None):
     return [(f"{d['name']} ({d['n_images']} images)", d["name"]) for d in list_datasets(train_dir)]
 
 
-def datasets_table(train_dir=None):
-    """! @brief Tableau des jeux d'entraînement (colonnes « jeu » et « images »)."""
-    rows = [{"jeu": d["name"], "images": d["n_images"]} for d in list_datasets(train_dir)]
-    return pd.DataFrame(rows, columns=["jeu", "images"])
-
-
 def dataset_samples(name, train_dir=None):
     """! @brief Vignettes d'un jeu : chemins d'images (liste vide si le jeu est absent)."""
     for d in list_datasets(train_dir):
@@ -509,7 +503,7 @@ def dataset_samples(name, train_dir=None):
     return []
 
 
-# ---------------------------------------------------------------- onglet Entraînement
+# ---------------------------------------------------------------- onglet Entraîner
 
 @functools.lru_cache(maxsize=64)
 def _estimate(mode, N, gdn_last):
@@ -623,7 +617,7 @@ def launch_jobs(store, name, author, dataset, mode, N, gdn_last, lambdas, steps,
         raise ValueError("Cochez au moins une valeur de λ.")
     root = Path(train_dir) if train_dir is not None else Path(config.TRAIN_DIR)
     if not dataset or not any(d["name"] == dataset for d in list_datasets(root)):
-        raise ValueError("Choisissez un jeu d'images existant (onglet Données).")
+        raise ValueError("Choisissez un jeu d'images existant (ou ajoutez-en un avec « Ajouter des images »).")
     steps = _num("nombre de pas", steps)
     base = {"name": name, "author": (author or "").strip(), "train_dir": _portable_path(root / dataset),
             "in_ch": 1 if mode == "gris" else 3, "N": _num("N", N), "gdn_last": bool(gdn_last),
@@ -846,8 +840,8 @@ def worker_banner(store):
         msg = ("**Aucun worker actif : les entraînements restent en attente.** Double-cliquez sur "
                "`scripts\\lancer_plateforme.bat`, ou lancez `docker compose up worker`.")
     if any(j.status == "running" for j in visible_jobs(store)):
-        msg += ("\n\nUn entraînement est en cours sur cette machine : les temps mesurés dans le banc d'essai "
-                "seront faussés tant qu'il tourne.")
+        msg += ("\n\nUn entraînement est en cours sur cette machine : les temps mesurés dans les onglets Tester "
+                "et Valider seront faussés tant qu'il tourne.")
     return msg
 
 
@@ -958,20 +952,21 @@ def _initial_estimate(vals):
         return ""
 
 
-def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=None):
-    """! @brief Crée les onglets Données, Entraînement et Suivi (à appeler dans le gr.Tabs de l'app).
+def build_tabs(store=None, tabs=None):
+    """! @brief Crée les onglets « 1. Entraîner » et « 2. Suivre » (à appeler dans le gr.Tabs de l'app).
 
-    @param mode            gr.Radio du mode de l'app (entrée de @p reload_fn).
-    @param reload_outputs  Composants mis à jour par @p reload_fn.
-    @param reload_fn       Fonction du bouton « Recharger les codecs » ; reçoit le mode, renvoie un tuple de gr.update.
-    @param store           JobStore ; None : JobStore() créé ici.
-    @param tabs            gr.Tabs de l'app ; s'il est fourni, « Lancer » ouvre l'onglet Suivi et
-                           « Dupliquer » l'onglet Entraînement.
-    @param menus_fn        Comme @p reload_fn mais sans redécouvrir les codecs (relit le registre) ; None : les
-                           menus de codecs d'une session neuve ne sont alors mis à jour qu'après un rechargement.
+    Les onglets suivants, créés après ceux-ci par l'app, sont reliés ensuite par la fonction renvoyée.
+    @param store  JobStore ; None : JobStore() créé ici.
+    @param tabs   gr.Tabs de l'app ; s'il est fourni, « Lancer » ouvre l'onglet Suivre, « Dupliquer » l'onglet
+                  Entraîner et « Tester ce modèle » l'onglet Tester.
+    @return Fonction @c connect(mode, reload_outputs, reload_fn, menus_fn, open_model_fn, open_model_outputs), à
+            appeler une fois tous les onglets créés. @c mode est le gr.Radio d'entrée de @c reload_fn ; @c reload_fn
+            (rechargement des codecs : reçoit le mode, renvoie un tuple de gr.update pour @c reload_outputs) et
+            @c menus_fn (idem sans redécouvrir les codecs) rafraîchissent les menus ; @c open_model_fn reçoit le
+            chemin du checkpoint d'un job et renvoie les gr.update de @c open_model_outputs.
 
     Les choix calculés à la construction sont rafraîchis à chaque chargement de session (événement @c load du
-    gr.Blocks courant) et, pour les jeux, à l'ouverture de l'onglet Entraînement.
+    gr.Blocks courant) et, pour les jeux, à l'ouverture de l'onglet Entraîner.
     """
     store = store or JobStore()
     mark_codecs_loaded({j.id for j in visible_jobs(store) if j.status == "done"})
@@ -979,62 +974,51 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
     ds_names = [v for _, v in ds_choices]
     first = preset_values(next(iter(PRESET_CHOICES)))
     nav = [tabs] if tabs is not None else []
+    jobs0 = job_choices(store)
 
     # Mise à jour de la sélection d'onglet (liste vide sans gr.Tabs).
     def go(tab_id):
         return [gr.Tabs(selected=tab_id)] if tabs is not None else []
 
-    # ------------------------------------------------ Données
-    with gr.Tab("Données", id="donnees"):
-        gr.Markdown("Choisissez les images avec lesquelles le modèle apprendra : téléchargez un jeu prêt à "
-                    "l'emploi, ou déposez les vôtres (plusieurs images, ou une archive **zip**). Des images de "
-                    "plus de 256 px de côté conviennent le mieux.")
-        with gr.Row():
-            with gr.Column(scale=1, min_width=300):
-                gr.Markdown("### Télécharger un jeu prêt à l'emploi")
-                c_pick = gr.Dropdown(catalog_choices(), value=next(iter(CATALOG)), label="Jeu à télécharger")
-                c_details = gr.Markdown(catalog_details(next(iter(CATALOG))))
-                c_go = gr.Button("Télécharger", variant="primary")
-                c_status = gr.Markdown()
-                gr.Markdown("### Déposer vos images")
-                d_name = gr.Textbox(label="Nom du jeu", info="Un nom court, par exemple « lune-lro ». "
-                                    "Si le jeu existe déjà, les images y sont ajoutées.")
-                d_files = gr.File(label="Images ou archive zip", file_count="multiple",
-                                  file_types=sorted(IMAGE_EXTS) + [".zip"])
-                d_go = gr.Button("Créer le jeu", variant="primary")
-                d_status = gr.Markdown()
-            with gr.Column(scale=2):
-                d_table = gr.Dataframe(datasets_table(), label="Jeux d'images disponibles", interactive=False)
-                d_pick = gr.Dropdown(ds_choices, value=ds_names[0] if ds_names else None,
-                                     label="Voir les vignettes d'un jeu",
-                                     info="Quelques images du jeu choisi.")
-                d_gallery = gr.Gallery(dataset_samples(ds_names[0]) if ds_names else [], label="Vignettes",
-                                       columns=6, height=200, object_fit="contain")
-
-    # ------------------------------------------------ Entraînement
-    with gr.Tab("Entraînement", id="entrainement") as tab_train:
-        gr.Markdown("Réglez l'entraînement puis cliquez sur **Lancer**. Un job est créé pour chaque valeur de λ "
-                    "cochée ; l'ordinateur chargé des calculs (le « worker ») les prend les uns après les autres.")
+    # ------------------------------------------------ Entraîner
+    with gr.Tab("1. Entraîner", id="entrainement") as tab_train:
+        gr.Markdown("Partez d'un préréglage, modifiez ce que vous voulez, puis cliquez sur **Lancer "
+                    "l'entraînement**. Un modèle est entraîné pour chaque valeur de λ cochée.")
         with gr.Row():
             with gr.Column(scale=1, min_width=320):
                 t_preset = gr.Radio(list(PRESET_CHOICES), value=next(iter(PRESET_CHOICES)), label="Préréglage",
-                                    info="Remplit les champs ci-dessous ; vous pouvez ensuite les modifier.")
-                t_name = gr.Textbox(label="Nom du run", info="Les modèles d'un même run sont regroupés dans le banc.")
-                t_author = gr.Textbox(label="Auteur", info="Votre prénom, pour retrouver vos entraînements.")
+                                    info="Remplit les réglages ; vous pouvez ensuite les modifier.")
+                with gr.Row():
+                    t_name = gr.Textbox(label="Nom du run", placeholder="lune-essai-1",
+                                        info="Regroupe les modèles de cet entraînement.")
+                    t_author = gr.Textbox(label="Auteur", info="Facultatif : votre prénom.")
                 t_dataset = gr.Dropdown(ds_choices, value=ds_names[0] if ds_names else None, label="Jeu d'images",
-                                        info="Créez un jeu dans l'onglet Données.")
-                t_mode = gr.Radio([(v, k) for k, v in MODE_LABELS.items()], value="gris", label="Mode",
-                                  info="Niveaux de gris ou couleur.")
-                t_N = gr.Dropdown(N_CHOICES, value=first["N"], label="Largeur du modèle (N)",
-                                  info="Plus N est grand, meilleur est le modèle, mais plus il est lourd.")
-                t_gdn = gr.Checkbox(value=first["gdn_last"], label="GDN finale",
-                                    info="Comme dans l'article ; décochez pour une variante plus légère.")
+                                        info="Les images avec lesquelles le modèle apprend.")
+                d_gallery = gr.Gallery(dataset_samples(ds_names[0]) if ds_names else [], label="Aperçu du jeu",
+                                       columns=6, height=130, object_fit="contain")
+                with gr.Accordion("Ajouter des images", open=not ds_names):
+                    c_pick = gr.Dropdown(catalog_choices(), value=next(iter(CATALOG)),
+                                         label="Télécharger un jeu prêt à l'emploi")
+                    c_details = gr.Markdown(catalog_details(next(iter(CATALOG))))
+                    c_go = gr.Button("Télécharger")
+                    c_status = gr.Markdown()
+                    d_name = gr.Textbox(label="… ou créer un jeu : nom", info="Un nom court, par exemple « lune-lro ». "
+                                        "Si le jeu existe déjà, les images y sont ajoutées.")
+                    d_files = gr.File(label="Images ou archive zip", file_count="multiple",
+                                      file_types=sorted(IMAGE_EXTS) + [".zip"])
+                    d_go = gr.Button("Créer le jeu")
+                    d_status = gr.Markdown()
             with gr.Column(scale=1, min_width=320):
+                t_mode = gr.Radio([(v, k) for k, v in MODE_LABELS.items()], value="gris", label="Mode")
                 t_lambdas = gr.CheckboxGroup(LAMBDA_CHOICES, value=first["lambdas"], label="Valeurs de λ",
-                                             info="Grand λ : meilleure qualité, plus de bits. Un job par valeur.")
+                                             info="Grand λ : meilleure qualité, plus de bits.")
                 t_steps = gr.Number(value=first["steps"], precision=0, minimum=1, label="Nombre de pas",
                                     info="Durée de l'entraînement.")
+                t_N = gr.Dropdown(N_CHOICES, value=first["N"], label="Largeur du modèle (N)",
+                                  info="Plus N est grand, meilleur est le modèle, mais plus il est lourd.")
                 with gr.Accordion("Réglages avancés", open=False):
+                    t_gdn = gr.Checkbox(value=first["gdn_last"], label="GDN finale",
+                                        info="Comme dans l'article ; décochez pour une variante plus légère.")
                     t_batch = gr.Number(value=first["batch_size"], precision=0, minimum=1, label="Taille du lot",
                                         info="Nombre de morceaux d'image traités ensemble.")
                     t_lr = gr.Number(value=first["lr"], minimum=1e-7, maximum=0.01, label="Pas d'apprentissage",
@@ -1047,32 +1031,35 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
                     t_seed = gr.Number(value=first["seed"], precision=0, minimum=0, label="Graine aléatoire",
                                        info="Pour refaire exactement le même entraînement.")
                 t_estimate = gr.Markdown(_initial_estimate(first))
-                t_go = gr.Button("Lancer", variant="primary")
+                t_go = gr.Button("Lancer l'entraînement", variant="primary")
                 t_result = gr.Markdown()
     form = [t_preset, t_name, t_author, t_dataset, t_mode, t_N, t_gdn, t_lambdas, t_steps, t_batch, t_lr,
             t_crop, t_patches, t_seed]
 
-    # ------------------------------------------------ Suivi
-    with gr.Tab("Suivi", id="suivi"):
+    # ------------------------------------------------ Suivre
+    with gr.Tab("2. Suivre", id="suivi"):
         s_banner = gr.Markdown(worker_banner(store))
         s_table = gr.Dataframe(jobs_table(store), label="Entraînements", interactive=False, wrap=True)
-        s_pick = gr.Dropdown(job_choices(store), label="Job à examiner", info="Courbes, journal et actions.")
-        s_summary = gr.Markdown("Sélectionnez un job.")
+        s_pick = gr.Dropdown(jobs0, value=jobs0[0][1] if jobs0 else None, label="Entraînement à examiner")
+        s_summary = gr.Markdown("Sélectionnez un entraînement.")
         s_plot = gr.Plot(label="Courbes")
-        s_log = gr.Textbox(label="Fin du journal (50 dernières lignes)", lines=12, max_lines=12,
-                           interactive=False)
         with gr.Row():
-            s_confirm = gr.Checkbox(label="Je confirme l'annulation",
-                                    info="Cochez avant de cliquer sur « Annuler ».")
-            s_cancel = gr.Button("Annuler")
+            s_test = gr.Button("Tester ce modèle", variant="primary")
             s_requeue = gr.Button("Relancer")
             s_dup = gr.Button("Dupliquer la configuration")
         s_msg = gr.Markdown()
+        with gr.Accordion("Journal", open=False):
+            s_log = gr.Textbox(label="Fin du journal (50 dernières lignes)", lines=12, max_lines=12,
+                               interactive=False)
+        with gr.Accordion("Annuler cet entraînement", open=False):
+            with gr.Row():
+                s_confirm = gr.Checkbox(label="Je confirme l'annulation")
+                s_cancel = gr.Button("Annuler", variant="stop")
         s_seen = gr.State(None)
         s_choices = gr.State(None)
         timer = gr.Timer(REFRESH_S)
 
-    # ---- callbacks Données
+    # ---- callbacks des jeux d'images
     # Adaptateur de create_dataset.
     def on_create(name, files):
         try:
@@ -1083,7 +1070,7 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
             gr.Warning(m)
         return dataset_ready(dest, msgs, 20)
 
-    # État de l'onglet une fois un jeu prêt : au plus max_msgs remarques affichées.
+    # État du formulaire une fois un jeu prêt : au plus max_msgs remarques affichées.
     def dataset_ready(dest, msgs, max_msgs):
         n = next((d["n_images"] for d in list_datasets() if d["name"] == dest.name), 0)
         status = f"Jeu **{dest.name}** prêt : {n} images."
@@ -1091,9 +1078,7 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
             status += "\n\n" + "\n".join(f"- {m}" for m in msgs[:max_msgs])
             if len(msgs) > max_msgs:
                 status += f"\n- … et {len(msgs) - max_msgs} autres remarques."
-        ch = dataset_choices()
-        return (status, datasets_table(), gr.update(choices=ch, value=dest.name), dataset_samples(dest.name),
-                gr.update(choices=ch, value=dest.name))
+        return status, dataset_samples(dest.name), gr.update(choices=dataset_choices(), value=dest.name)
 
     # Adaptateur de install_catalog_dataset. Pas de fenêtres d'avertissement : les remarques sont connues d'avance.
     def on_download(key, progress=gr.Progress()):
@@ -1105,13 +1090,13 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
             gr.Info(f"Le jeu « {dest.name} » est déjà présent : rien à télécharger.")
         return dataset_ready(dest, msgs, 3)
 
-    d_go.click(on_create, [d_name, d_files], [d_status, d_table, d_pick, d_gallery, t_dataset])
-    d_pick.input(lambda n: dataset_samples(n), d_pick, d_gallery)
+    d_go.click(on_create, [d_name, d_files], [d_status, d_gallery, t_dataset])
+    t_dataset.change(lambda n: dataset_samples(n), t_dataset, d_gallery, show_progress="hidden")
     c_pick.input(catalog_details, c_pick, c_details)
     # Un téléchargement à la fois : un second clic attend, puis constate que le jeu est présent.
-    c_go.click(on_download, c_pick, [c_status, d_table, d_pick, d_gallery, t_dataset], concurrency_limit=1)
+    c_go.click(on_download, c_pick, [c_status, d_gallery, t_dataset], concurrency_limit=1)
 
-    # ---- callbacks Entraînement
+    # ---- callbacks Entraîner
     # Remplit le formulaire avec un préréglage.
     def on_preset(preset):
         try:
@@ -1136,7 +1121,7 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
     for comp in (t_mode, t_N, t_gdn):
         comp.change(on_estimate, [t_mode, t_N, t_gdn], t_estimate, show_progress="hidden")
 
-    # Adaptateur de launch_jobs.
+    # Adaptateur de launch_jobs : ouvre le suivi sur le premier entraînement créé.
     def on_launch(*vals):
         v = dict(zip(FORM_KEYS, vals))
         try:
@@ -1145,13 +1130,13 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
                               v["seed"])
         except ValueError as e:
             raise gr.Error(str(e)) from None
-        txt = "Jobs créés : " + ", ".join(f"n°{i}" for i in ids) + ". Suivez-les dans l'onglet Suivi."
+        txt = "Entraînements créés : " + ", ".join(f"n°{i}" for i in ids) + "."
         gr.Info(txt)
-        return [txt, jobs_table(store), gr.update(choices=job_choices(store))] + go("suivi")
+        return [txt, jobs_table(store), gr.update(choices=job_choices(store), value=ids[0])] + go("suivi")
 
     t_go.click(on_launch, form, [t_result, s_table, s_pick] + nav)
 
-    # ---- callbacks Suivi
+    # ---- callbacks Suivre
     # Détail d'un job pour les trois zones d'affichage.
     def show(job_id):
         try:
@@ -1159,12 +1144,12 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
         except KeyError:
             return None, "", "Ce job n'existe plus."
 
-    s_pick.input(show, s_pick, [s_plot, s_log, s_summary])
+    s_pick.change(show, s_pick, [s_plot, s_log, s_summary], show_progress="hidden")
 
     # Adaptateur de cancel_job.
     def on_cancel(job_id, ok):
         if job_id is None:
-            raise gr.Error("Sélectionnez d'abord un job.")
+            raise gr.Error("Sélectionnez d'abord un entraînement.")
         try:
             msg = cancel_job(store, job_id, ok)
         except (ValueError, KeyError) as e:
@@ -1174,7 +1159,7 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
     # Adaptateur de requeue_job.
     def on_requeue(job_id):
         if job_id is None:
-            raise gr.Error("Sélectionnez d'abord un job.")
+            raise gr.Error("Sélectionnez d'abord un entraînement.")
         try:
             return requeue_job(store, job_id)
         except (ValueError, KeyError) as e:
@@ -1183,7 +1168,7 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
     # Adaptateur de duplicate_config.
     def on_dup(job_id):
         if job_id is None:
-            raise gr.Error("Sélectionnez d'abord un job.")
+            raise gr.Error("Sélectionnez d'abord un entraînement.")
         try:
             vals = duplicate_config(store, job_id)
         except KeyError:
@@ -1191,48 +1176,62 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
         names = ds_names_now()
         if vals["dataset"] not in names:
             gr.Warning(f"Le jeu d'images « {vals['dataset']} » n'existe plus : choisissez-en un autre.")
-        gr.Info("Configuration copiée dans l'onglet Entraînement.")
+        gr.Info("Configuration copiée dans l'onglet Entraîner.")
         return _form_updates(vals, names) + go("entrainement")
 
     s_cancel.click(on_cancel, [s_pick, s_confirm], [s_msg, s_confirm])
     s_requeue.click(on_requeue, s_pick, s_msg)
     s_dup.click(on_dup, s_pick, form + nav)
 
-    # Rafraîchissement périodique : tableau, bannière, détail du job, rechargement des codecs.
-    def on_tick(m, job_id, seen, last_choices):
-        done, fresh = new_done_jobs(store, seen)
-        reload = (codec_updates(done, m, reload_fn, menus_fn, len(reload_outputs)) if fresh
-                  else tuple(gr.update() for _ in reload_outputs))
-        choices = job_choices(store)
-        pick = gr.update(choices=choices) if choices != last_choices else gr.update()
-        fig, log, summary = show(job_id) if job_id is not None else (gr.update(), gr.update(), gr.update())
-        return (jobs_table(store), worker_banner(store), pick, fig, log, summary, done, choices) + reload
-
-    timer.tick(on_tick, [mode, s_pick, s_seen, s_choices],
-               [s_table, s_banner, s_pick, s_plot, s_log, s_summary, s_seen, s_choices] + list(reload_outputs),
-               show_progress="hidden")
-
-    # ---- rafraîchissement des choix calculés à la construction
-    # Chargement d'une session : jeux, jobs et codecs d'après l'état actuel du serveur.
-    def on_load(m, train_ds, view_ds, job_id):
-        ch = dataset_choices()
-        view = choice_update(ch, view_ds)["value"]
-        jobs = job_choices(store)
-        done = {j.id for j in visible_jobs(store) if j.status == "done"}
-        pick = choice_update(jobs, job_id)
-        reload = codec_updates(done, m, reload_fn, menus_fn, len(reload_outputs))
-        return (choice_update(ch, train_ds), gr.update(choices=ch, value=view), datasets_table(),
-                dataset_samples(view) if view else [], pick, jobs_table(store), jobs, done) + reload
-
-    gr.context.Context.root_block.load(
-        on_load, [mode, t_dataset, d_pick, s_pick],
-        [t_dataset, d_pick, d_table, d_gallery, s_pick, s_table, s_choices, s_seen] + list(reload_outputs),
-        show_progress="hidden")
-
-    # Ouverture de l'onglet Entraînement : jeux créés depuis une autre session.
+    # Ouverture de l'onglet Entraîner : jeux créés depuis une autre session.
     def on_train_tab(current):
         return choice_update(dataset_choices(), current)
 
     tab_train.select(on_train_tab, t_dataset, t_dataset, show_progress="hidden")
 
-    return None
+    # Relie ce qui dépend des onglets créés ensuite par l'app (voir la description de la valeur renvoyée).
+    def connect(mode, reload_outputs, reload_fn, menus_fn=None, open_model_fn=None, open_model_outputs=()):
+        reload_outputs = list(reload_outputs)
+
+        # Rafraîchissement périodique : tableau, bannière, détail du job, rechargement des codecs.
+        def on_tick(m, job_id, seen, last_choices):
+            done, fresh = new_done_jobs(store, seen)
+            reload = (codec_updates(done, m, reload_fn, menus_fn, len(reload_outputs)) if fresh
+                      else tuple(gr.update() for _ in reload_outputs))
+            choices = job_choices(store)
+            pick = gr.update(choices=choices) if choices != last_choices else gr.update()
+            fig, log, summary = show(job_id) if job_id is not None else (gr.update(), gr.update(), gr.update())
+            return (jobs_table(store), worker_banner(store), pick, fig, log, summary, done, choices) + reload
+
+        timer.tick(on_tick, [mode, s_pick, s_seen, s_choices],
+                   [s_table, s_banner, s_pick, s_plot, s_log, s_summary, s_seen, s_choices] + reload_outputs,
+                   show_progress="hidden")
+
+        # Chargement d'une session : jeux, jobs et codecs d'après l'état actuel du serveur.
+        def on_load(m, train_ds, job_id):
+            ds = choice_update(dataset_choices(), train_ds)
+            jobs = job_choices(store)
+            done = {j.id for j in visible_jobs(store) if j.status == "done"}
+            reload = codec_updates(done, m, reload_fn, menus_fn, len(reload_outputs))
+            return (ds, dataset_samples(ds["value"]) if ds["value"] else [], choice_update(jobs, job_id),
+                    jobs_table(store), jobs, done) + reload
+
+        gr.context.Context.root_block.load(
+            on_load, [mode, t_dataset, s_pick],
+            [t_dataset, d_gallery, s_pick, s_table, s_choices, s_seen] + reload_outputs,
+            show_progress="hidden")
+
+        # « Tester ce modèle » : ouvre l'onglet Tester sur le modèle du job choisi.
+        def on_test(job_id):
+            if job_id is None:
+                raise gr.Error("Sélectionnez d'abord un entraînement.")
+            try:
+                ckpt = store.get(int(job_id)).ckpt_path
+            except KeyError:
+                raise gr.Error("Ce job n'existe plus.") from None
+            return list(open_model_fn(ckpt)) + go("tester")
+
+        if open_model_fn is not None:
+            s_test.click(on_test, s_pick, list(open_model_outputs) + nav)
+
+    return connect

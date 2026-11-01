@@ -1,15 +1,15 @@
 # Guide de l'interface d'entraînement
 
-Ce guide s'adresse à toute personne de l'équipe, même sans avoir jamais ouvert de terminal. Il explique comment entraîner un modèle de compression d'image depuis le navigateur, suivre l'entraînement et comparer le résultat avec JPEG.
+Ce guide s'adresse à toute personne de l'équipe, même sans avoir jamais ouvert de terminal. L'interface suit quatre étapes, une par onglet : **1. Entraîner**, **2. Suivre**, **3. Tester** et **4. Valider**.
 
 ## Sommaire
 
 1. [Démarrer la plateforme](#1-démarrer-la-plateforme)
-2. [Déposer des images (onglet Données)](#2-déposer-des-images-onglet-données)
-3. [Lancer un test rapide (onglet Entraînement)](#3-lancer-un-test-rapide-onglet-entraînement)
-4. [Suivre l'entraînement (onglet Suivi)](#4-suivre-lentraînement-onglet-suivi)
+2. [Ajouter des images](#2-ajouter-des-images)
+3. [Lancer un entraînement (onglet 1. Entraîner)](#3-lancer-un-entraînement-onglet-1-entraîner)
+4. [Suivre l'entraînement (onglet 2. Suivre)](#4-suivre-lentraînement-onglet-2-suivre)
 5. [Annuler, relancer, dupliquer](#5-annuler-relancer-dupliquer)
-6. [Comparer avec JPEG](#6-comparer-avec-jpeg)
+6. [Tester et valider le modèle (onglets 3 et 4)](#6-tester-et-valider-le-modèle-onglets-3-et-4)
 7. [Quand quelque chose ne va pas](#7-quand-quelque-chose-ne-va-pas)
 8. [Bon à savoir](#8-bon-à-savoir)
 
@@ -45,13 +45,13 @@ puis ouvrez <http://localhost:7860>. Ne mélangez pas les deux méthodes : l'int
 
 Par défaut, l'interface n'est accessible que depuis votre propre ordinateur et ne demande aucun identifiant. Si l'équipe a ouvert la plateforme sur le réseau, la page demande un identifiant et un mot de passe : ils vous sont donnés par la personne qui administre la machine.
 
-## 2. Déposer des images (onglet Données)
+## 2. Ajouter des images
 
-Les images servent d'exemples au modèle pour apprendre à compresser. Plus elles ressemblent à ce que le rover verra, meilleur sera le modèle.
+Les images servent d'exemples au modèle pour apprendre à compresser. Plus elles ressemblent à ce que le rover verra, meilleur sera le modèle. Tout se passe dans l'onglet **1. Entraîner**, dans la section **Ajouter des images**, sous le menu « Jeu d'images ». Cette section est déjà ouverte tant qu'aucun jeu n'existe.
 
 ### Télécharger un jeu prêt à l'emploi
 
-Pas d'images sous la main ? Ouvrez l'onglet **Données**, choisissez un jeu dans « Jeu à télécharger » puis cliquez sur **Télécharger**. Il apparaît ensuite dans le tableau et dans le menu de l'onglet Entraînement.
+Pas d'images sous la main ? Choisissez un jeu dans « Télécharger un jeu prêt à l'emploi » puis cliquez sur **Télécharger**. Il est ensuite sélectionné dans le menu « Jeu d'images ».
 
 | Jeu | Contenu | Images | Téléchargement | Licence |
 | :- | :- | -: | -: | :- |
@@ -70,10 +70,9 @@ Ce qu'il faut savoir :
 
 ### Déposer vos propres images
 
-1. Ouvrez l'onglet **Données**.
-2. Donnez un **Nom du jeu**, court, par exemple `lune-lro`. Si ce jeu existe déjà, vos images y sont ajoutées. Aucun fichier existant n'est remplacé : en cas de doublon, le nouveau fichier reçoit un suffixe `_2`.
-3. Glissez vos fichiers dans « Images ou archive zip », ou cliquez pour les choisir.
-4. Cliquez sur **Créer le jeu**.
+1. Donnez un nom au jeu, court, par exemple `lune-lro`. Si ce jeu existe déjà, vos images y sont ajoutées. Aucun fichier existant n'est remplacé : en cas de doublon, le nouveau fichier reçoit un suffixe `_2`.
+2. Glissez vos fichiers dans « Images ou archive zip », ou cliquez pour les choisir.
+3. Cliquez sur **Créer le jeu**.
 
 Ce qu'il faut savoir :
 
@@ -84,25 +83,24 @@ Ce qu'il faut savoir :
 - **Tout ou rien** : si l'envoi échoue (archive illisible, trop gros, aucune image valide), rien n'est ajouté au jeu. Corrigez et recommencez.
 - Les images illisibles sont écartées avec un message, et le reste de l'envoi est conservé.
 
-Le tableau « Jeux d'images disponibles » liste vos jeux et leur nombre d'images. Le menu « Voir les vignettes d'un jeu » affiche quelques images pour vérifier que le dépôt est correct.
+Le menu « Jeu d'images » liste vos jeux avec leur nombre d'images. « Aperçu du jeu » affiche quelques images du jeu choisi, pour vérifier que le dépôt est correct.
 
-## 3. Lancer un test rapide (onglet Entraînement)
+## 3. Lancer un entraînement (onglet 1. Entraîner)
 
 Faites toujours un test rapide avant un long entraînement : il vérifie que tout fonctionne.
 
-1. Ouvrez l'onglet **Entraînement**.
+1. Ouvrez l'onglet **1. Entraîner**.
 2. Choisissez le préréglage **Test rapide (quelques minutes)**. Il remplit tous les champs. L'autre préréglage, **Standard (plusieurs heures, GPU conseillé)**, sert aux vrais entraînements. Vous pouvez ensuite modifier les champs. Le choix **Personnalisé** ne remplit rien : il laisse les champs tels quels.
-3. Remplissez **Nom du run** (obligatoire) : tous les modèles d'un même run seront regroupés dans le banc d'essai. Ajoutez votre prénom dans **Auteur** pour retrouver vos entraînements.
-4. Choisissez le **Jeu d'images** créé à l'étape précédente.
-5. Choisissez le **Mode** : niveaux de gris ou couleur.
-6. Réglez les valeurs :
-   - **Largeur du modèle (N)** : plus N est grand, meilleur est le modèle, mais plus il est lourd à calculer et à stocker.
-   - **GDN finale** : laissez cochée, comme dans l'article de référence.
+3. Remplissez **Nom du run** (obligatoire) : tous les modèles d'un même run sont regroupés. **Auteur** est facultatif et sert à retrouver vos entraînements.
+4. Choisissez le **Jeu d'images** (voir la [section 2](#2-ajouter-des-images)).
+5. Modifiez les réglages si besoin :
+   - **Mode** : niveaux de gris ou couleur.
    - **Valeurs de λ** : cochez une ou plusieurs valeurs. Un entraînement séparé est créé pour chaque valeur cochée.
    - **Nombre de pas** : la durée de l'entraînement.
-   - **Réglages avancés** : taille du lot, pas d'apprentissage, taille des morceaux d'image, nombre de morceaux gardés en mémoire, graine aléatoire. Les valeurs des préréglages conviennent en général.
-7. Lisez l'encart sous les champs : il estime le poids de la partie du modèle qui tournera sur la carte (paramètres, calculs par pixel, taille en INT8) et dit si elle tient dans la mémoire BRAM du FPGA.
-8. Cliquez sur **Lancer**. L'interface passe toute seule dans l'onglet **Suivi**.
+   - **Largeur du modèle (N)** : plus N est grand, meilleur est le modèle, mais plus il est lourd à calculer et à stocker.
+   - **Réglages avancés** : GDN finale, taille du lot, pas d'apprentissage, taille des morceaux d'image, nombre de morceaux gardés en mémoire, graine aléatoire. Les valeurs des préréglages conviennent en général.
+6. Lisez l'encart sous les réglages : il estime le poids de la partie du modèle qui tournera sur la carte (paramètres, calculs par pixel, taille en INT8) et dit si elle tient dans la mémoire BRAM du FPGA.
+7. Cliquez sur **Lancer l'entraînement**. L'interface passe toute seule dans l'onglet **2. Suivre**, sur le premier entraînement créé.
 
 ### Combien de temps ça prend ?
 
@@ -111,13 +109,13 @@ Faites toujours un test rapide avant un long entraînement : il vérifie que tou
 - Sans connexion et sans Kodak déjà téléchargé, la mesure de qualité se fait sur des images de votre jeu d'entraînement, avec un avertissement. Les chiffres sont alors moins comparables.
 - Un entraînement **Standard** dure plusieurs heures, et un GPU est conseillé.
 
-## 4. Suivre l'entraînement (onglet Suivi)
+## 4. Suivre l'entraînement (onglet 2. Suivre)
 
-L'onglet **Suivi** se rafraîchit tout seul toutes les 5 secondes.
+L'onglet **2. Suivre** se rafraîchit tout seul toutes les 5 secondes.
 
 - **Le bandeau en haut** dit si un worker est actif. Si non, voir [section 7](#7-quand-quelque-chose-ne-va-pas).
 - **Le tableau « Entraînements »** liste les jobs (un job = un entraînement pour une valeur de λ), du plus récent au plus ancien, avec leur statut, leur progression en pourcentage et le temps restant estimé.
-- **Le menu « Job à examiner »** affiche en dessous les courbes, la fin du journal (50 dernières lignes) et un résumé des réglages.
+- **Le menu « Entraînement à examiner »** affiche en dessous un résumé des réglages et les courbes. La section **Journal** contient les 50 dernières lignes du journal.
 
 ### Les statuts
 
@@ -157,17 +155,21 @@ C'est pourquoi un même run peut comporter plusieurs λ : chacun produit un mod�
 
 ## 5. Annuler, relancer, dupliquer
 
-Sélectionnez d'abord le job dans le menu « Job à examiner ».
+Sélectionnez d'abord le job dans le menu « Entraînement à examiner ».
 
-- **Annuler** : cochez « Je confirme l'annulation », puis cliquez sur **Annuler**. Un job en attente est annulé aussitôt. Un job en cours sauvegarde son avancement puis s'arrête dans les secondes qui suivent.
+- **Annuler** : ouvrez la section « Annuler cet entraînement », cochez « Je confirme l'annulation », puis cliquez sur **Annuler**. Un job en attente est annulé aussitôt. Un job en cours sauvegarde son avancement puis s'arrête dans les secondes qui suivent.
 - **Relancer** : disponible pour un job En échec, Annulé ou Interrompu. Le job repart dans la file et **reprend à son dernier point de sauvegarde**, sans refaire ce qui est déjà fait. Si le job échoue de nouveau, lisez le message d'erreur dans le résumé.
-- **Dupliquer la configuration** : copie les réglages du job dans l'onglet Entraînement (le nom reçoit « (copie) »), pour en lancer un nouveau en changeant une valeur. Si le jeu d'images d'origine n'existe plus, un avertissement vous demande d'en choisir un autre.
+- **Dupliquer la configuration** : copie les réglages du job dans l'onglet 1. Entraîner (le nom reçoit « (copie) »), pour en lancer un nouveau en changeant une valeur. Si le jeu d'images d'origine n'existe plus, un avertissement vous demande d'en choisir un autre.
 
-## 6. Comparer avec JPEG
+## 6. Tester et valider le modèle (onglets 3 et 4)
 
-Quand un job passe à **Terminé**, ses modèles apparaissent tout seuls dans le banc d'essai (une série par run). Ouvrez l'onglet **Comparer** pour voir une image compressée par plusieurs méthodes au même débit, ou l'onglet **Benchmark** pour lancer une campagne sur plusieurs images et obtenir les courbes débit-qualité face à JPEG, JPEG 2000 et WebP.
+**Tester : une image, pour voir le résultat.** Dans l'onglet 2. Suivre, cliquez sur **Tester ce modèle** : l'onglet **3. Tester** s'ouvre sur le modèle et le niveau de cet entraînement. Vous pouvez aussi les choisir vous-même dans le menu. Choisissez une image ou importez la vôtre, puis cliquez sur **Tester**. Vous obtenez l'original, l'image reconstruite, l'erreur amplifiée quatre fois, un zoom et les mesures. Les codecs cochés dans « Comparer à » (JPEG et JPEG 2000 par défaut) sont pris au débit le plus proche de celui du modèle. Le mode d'image est celui du modèle : il n'y a rien à régler.
 
-Si les modèles n'apparaissent pas, cliquez sur le bouton « Recharger les codecs » du banc d'essai.
+**Valider : un jeu d'images, pour conclure.** Dans l'onglet **4. Valider**, cochez les modèles et les références, choisissez le jeu et le nombre d'images, puis cliquez sur **Lancer la campagne**. Vous obtenez les courbes débit-qualité et le BD-rate : un BD-rate négatif signifie que le modèle utilise moins de bits que la référence à qualité égale. Il faut au moins 4 points par courbe, donc au moins 4 valeurs de λ pour un modèle entraîné ici. La section « Détails de la campagne » contient la référence du BD-rate, les temps d'encodage et le CSV.
+
+**Le coût sur la carte.** La section « Coût sur la carte » de l'onglet 4. Valider donne le calcul et la mémoire de l'encodeur, couche par couche. Elle vérifie aussi que PyTorch, ONNX Runtime et Aidge donnent les mêmes latents.
+
+Un modèle terminé apparaît tout seul dans les menus. Sinon, ouvrez la section « Aide » en bas de page et cliquez sur **Recharger les codecs**.
 
 Le banc d'essai est décrit dans le [README](../README.md#banc-dessai-de-compression).
 
