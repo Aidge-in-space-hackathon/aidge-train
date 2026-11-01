@@ -26,7 +26,7 @@ aidge-quantization==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform 
 
 # Banc d'essai (python -m aidge_in_space.app) et ses tests
 gradio>=6.0
-pytest>=8.0
+pytest>=9.2.0
 
 # Notebooks
 jupyterlab>=4.6.4
