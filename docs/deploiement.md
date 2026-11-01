@@ -49,7 +49,7 @@ Aucun secret à créer : le jeton fourni par GitHub à chaque job suffit pour pu
 
 Un merge sur `main` suffit. Le suivi se fait dans l'onglet *Actions* du dépôt ; sur le serveur, `docker compose -p aidge-train-prod ps` et `docker compose -p aidge-train-prod logs -f` montrent l'état des conteneurs.
 
-Un déploiement redémarre le worker : un entraînement en cours est arrêté proprement (90 s de délai pour sauvegarder) et passe au statut « interrompu ». Pour l'instant il faut le relancer depuis l'onglet Suivi ; la reprise automatique au démarrage du worker est prévue (feuille de route du cahier des charges). D'ici là, mieux vaut éviter de merger pendant un long entraînement, ou exiger une validation manuelle sur l'environnement `production`.
+Un déploiement redémarre le worker : un entraînement en cours est arrêté proprement (90 s de délai pour sauvegarder) et passe au statut « interrompu ». Pour l'instant il faut le relancer depuis l'onglet 2. Suivre ; la reprise automatique au démarrage du worker est prévue (feuille de route du cahier des charges). D'ici là, mieux vaut éviter de merger pendant un long entraînement, ou exiger une validation manuelle sur l'environnement `production`.
 
 Pour revenir à une version précédente sans repasser par la CI, depuis le serveur (l'image de la version précédente est conservée localement) :
 

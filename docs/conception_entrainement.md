@@ -25,11 +25,11 @@ regroupement par série de `codecs/balle2017.py`).
  Navigateur
      │ HTTP (127.0.0.1:7860 par défaut ; authentification obligatoire si exposé)
      ▼
- Gradio : aidge_in_space.app  (banc d'essai existant + onglets Données, Entraînement, Suivi
+ Gradio : aidge_in_space.app  (onglets Tester, Valider + onglets Entraîner, Suivre
      │                          de aidge_in_space.ui_training)
      │  JobStore : submit / cancel / requeue ; lit jobs, métriques, train.log, workers
      ▼
- RUNS_DIR/runs.sqlite  (file SQLite, journal DELETE)        data/train/<nom>/  (écrit par l'onglet Données)
+ RUNS_DIR/runs.sqlite  (file SQLite, journal DELETE)        data/train/<nom>/  (écrit par l'onglet Entraîner)
      ▲   ▲
      │   │ JobStore : claim_next / heartbeat / worker_heartbeat / finish / recover_orphans
      │   │
@@ -45,7 +45,7 @@ regroupement par série de `codecs/balle2017.py`).
  outputs/checkpoints/bls2017_c{in_ch}_N{N}_lambda{λ:g}_run{N}.pt
             │ découvert par aidge_in_space.codecs.balle2017.codecs() (bouton « Recharger les codecs »,
             ▼ ou rechargement automatique quand un job passe à done)
- Banc d'essai (Comparer, Explorer, Benchmark, Encodeur embarqué)
+ Banc d'essai (onglets Tester et Valider)
 ```
 
 Principes non négociables :
@@ -583,7 +583,7 @@ ERROR_TAIL_LINES = 20
 
 **Arrêt du worker** (Ctrl+C, SIGTERM, `docker compose stop`) : fermeture du stdin de l'enfant, attente
 de sa sortie (code 4) au plus `STOP_TIMEOUT_S`, `finish(interrupted)`, puis sortie. La relance est
-manuelle (`requeue` depuis l'onglet Suivi). Si le worker est tué brutalement, l'enfant reçoit la fin de
+manuelle (`requeue` depuis l'onglet Suivre). Si le worker est tué brutalement, l'enfant reçoit la fin de
 stdin, sauvegarde et sort ; le job reste `running` jusqu'à ce qu'un worker (au démarrage, ou à chaque
 tour de boucle au repos) appelle `recover_orphans(STALE_AFTER_S)` : il passe `interrupted` au plus
 60 s après son dernier battement de cœur.
@@ -649,27 +649,32 @@ WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", "COM1", …, "COM9", "LPT1", …
 | `new_done_jobs(store, seen: set[int] \| None) -> tuple[set[int], bool]` | (ids des jobs `done`, vrai s'il y en a de nouveaux par rapport à `seen`) ; `seen is None` (premier tick) → jamais vrai | aucune |
 | `build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None) -> None` | voir ci-dessous | |
 
-**Progression et temps restant** (onglet Suivi) : progression = `100 × last_step / steps`, arrondie à
+**Progression et temps restant** (onglet Suivre) : progression = `100 × last_step / steps`, arrondie à
 0,1 (100 pour `done`). `last_step` est écrit uniquement par `log_metrics` et `reset_progress`, donc
 mis à jour tous les `log_every` pas. Temps restant, seulement pour `running` : à partir de la dernière
 métrique `train` du job, `max(0, eta_s - (now - created_at))` ; `"-"` s'il n'y a pas encore de
 métrique, pour `queued` et pour les statuts finaux.
 
-**`build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None)`** : appelée dans le
-`with gr.Tabs():` de `app.build()`. Crée les onglets « Données » (`id="donnees"`), « Entraînement »
-(`id="entrainement"`) et « Suivi » (`id="suivi"`).
+**`build_tabs(store=None, tabs=None) -> connect`** : appelée dans le `with gr.Tabs():` de `app.build()`.
+Crée les onglets « 1. Entraîner » (`id="entrainement"`, avec la section « Ajouter des images ») et
+« 2. Suivre » (`id="suivi"`). Les onglets Tester et Valider étant créés après, elle renvoie une fonction à
+appeler une fois tous les onglets créés :
+`connect(mode, reload_outputs, reload_fn, menus_fn=None, open_model_fn=None, open_model_outputs=())`.
 
-- `mode` : composant `gr.Radio` du mode de l'app (entrée de `reload_fn`) ; le mode du formulaire
-  d'entraînement est un champ propre à l'onglet.
+- `mode` : composant `gr.Radio` de l'onglet Valider (entrée de `reload_fn`) ; le mode du formulaire
+  d'entraînement est un champ propre à l'onglet, et l'onglet Tester déduit le mode du modèle (`app.model_mode`).
 - `reload_outputs` : liste de composants mis à jour par `reload_fn` (menus de codecs et `codecs_md`).
 - `reload_fn(mode_value) -> tuple` : la fonction du bouton « Recharger les codecs » (`app.reload_codecs`).
+- `open_model_fn(ckpt_path) -> tuple` : le bouton « Tester ce modèle » (`app.open_model`) ; met à jour
+  `open_model_outputs` puis ouvre l'onglet Tester.
 - `store` : `JobStore` ; `None` → `JobStore()` créé à la construction.
-- `tabs` (ajout facultatif au brief) : le `gr.Tabs` de l'app ; s'il est fourni, « Lancer » bascule sur
-  l'onglet Suivi et « Dupliquer la configuration » sur l'onglet Entraînement (`gr.Tabs(selected=…)`).
+- `tabs` : le `gr.Tabs` de l'app ; s'il est fourni, « Lancer » bascule sur l'onglet Suivre et « Dupliquer la
+  configuration » sur l'onglet Entraîner (`gr.Tabs(selected=…)`).
 - Un `gr.Timer(5)` rafraîchit le tableau, la bannière du worker et le détail du job sélectionné ;
   quand `new_done_jobs` signale un nouveau job terminé, il appelle `reload_fn(mode)` sur
   `reload_outputs` (l'état `seen` est un `gr.State`).
-- Les menus mis à jour par callback réagissent à `.input` (choix de l'utilisateur), jamais à `.change`.
+- Les menus mis à jour par callback réagissent à `.input` (choix de l'utilisateur). Seuls le jeu d'images et le job
+  à examiner utilisent `.change`, parce qu'ils ne mettent à jour que des zones d'affichage (aucune boucle possible).
 - L'encart d'estimation est recalculé à chaque changement de mode, N ou GDN finale (`estimate`).
 - Annuler : case « Je confirme l'annulation » obligatoire. Relancer : `requeue_job` sur un job
   `failed`, `cancelled` ou `interrupted`.
@@ -677,13 +682,11 @@ métrique, pour `queued` et pour les statuts finaux.
 ### 2.8 `aidge_in_space/app.py` : modifications minimales (ingénieur interface)
 
 1. Factoriser au niveau du module (les deux fonctions ne renvoient que des `gr.update`) :
-   - `mode_updates(m) -> tuple` : contenu actuel de `on_mode` ;
+   - `mode_updates(m) -> tuple` : menus de codecs (modèle à tester, codecs de la campagne, modèle du coût) ;
    - `reload_codecs(m) -> tuple` : `discover()`, `backends.clear_runners()`, puis
      `mode_updates(m) + (codecs_markdown(),)`.
-   `build()` les utilise : `mode.change(mode_updates, …)`, `reload_btn.click(reload_codecs, mode, mode_outputs + [codecs_md])`.
-2. Dans `build()`, le `with gr.Tabs() as tabs:` reçoit, après l'onglet « Codecs et aide » (pour que
-   `codecs_md` existe), l'appel `ui_training.build_tabs(mode, mode_outputs + [codecs_md], reload_codecs, tabs=tabs)`.
-   Les composants `mode_outputs` doivent être créés avant cet appel.
+2. Dans `build()`, le `with gr.Tabs() as tabs:` commence par `connect = ui_training.build_tabs(tabs=tabs)`, puis
+   crée les onglets Tester et Valider. `connect(...)` est appelée à la fin, une fois tous les composants créés.
 3. Fonctions pures ajoutées :
    - `parse_users(spec: str | None) -> list[tuple[str, str]]` : `"login:motdepasse,login2:motdepasse2"`,
      coupe sur `,` puis sur le **premier** `:` ; espaces autour ignorés ; `None` ou vide → `[]` ;
@@ -784,7 +787,7 @@ volumes:
 - Les checkpoints restent dans `/workspace/outputs/checkpoints` (montage du dépôt) et sont visibles du
   banc d'essai, dans Docker comme dans le venv.
 - **Accepté** : avec le volume nommé, `train.log` et `runs.sqlite` ne sont pas visibles depuis l'hôte
-  Windows. L'onglet Suivi affiche les 50 dernières lignes du journal ; pour le reste :
+  Windows. L'onglet Suivre affiche les 50 dernières lignes du journal ; pour le reste :
   `docker compose exec worker tail -f /runs/<id>/train.log`.
 - Interdit : mélanger l'interface du venv et un worker Docker. Ils n'ont de toute façon pas la même
   base (`outputs/runs` contre le volume `/runs`) : un job soumis par l'une ne serait jamais vu par
@@ -877,7 +880,7 @@ Une relance garde l'id : le checkpoint `…_run{id}.pt` est repris au dernier pa
 ## 5. Arborescence des fichiers produits
 
 ```
-data/train/<nom>/*.png|jpg|…                   onglet Données (ignoré par Git)
+data/train/<nom>/*.png|jpg|…                   onglet Entraîner (ignoré par Git)
 outputs/runs/                                  RUNS_DIR en venv ; /runs (volume nommé) en Docker
   runs.sqlite                                  JobStore (+ runs.sqlite-journal pendant une écriture)
   <id>/config.yaml                             train --job-id, au démarrage
@@ -993,13 +996,13 @@ Critères de la section 7 du brief, avec la partie du contrat qui y répond.
 Scénario du critère 3, étape par étape, avec ce qui le rend possible :
 
 1. Lancer l'app et le worker (deux commandes, ou `docker compose up app worker`) : bannière « Worker actif » (`worker_alive`).
-2. Onglet Données : créer le jeu `test` avec 5 images Kodak (`create_dataset` ; 768 x 512, au-dessus de `MIN_SIDE`).
-3. Onglet Entraînement : préréglage Test rapide, **deux** λ (256 et 8192), Lancer : deux jobs (`launch_jobs`), même série.
+2. Onglet Entraîner, section « Ajouter des images » : créer le jeu `test` avec 5 images Kodak (`create_dataset` ; 768 x 512, au-dessus de `MIN_SIDE`).
+3. Onglet Entraîner : préréglage Test rapide, **deux** λ (256 et 8192), Lancer : deux jobs (`launch_jobs`), même série.
 4. Les deux jobs passent l'un après l'autre (un job à la fois par worker, ordre `queued_at`) ; courbes et journal se mettent à jour (`gr.Timer(5)`, `log_every = 10`, `job_details`).
 5. Fermer l'onglet du navigateur pendant un entraînement puis le rouvrir : l'entraînement continue. Il tourne dans le worker, jamais dans l'interface, et l'état est relu dans la base.
 6. Annuler un job : `cancel_requested`, puis code 3 en 5 s au plus (plus un pas), checkpoint sauvegardé, statut Annulé. Le relancer : `requeue`, même id, reprise au pas du checkpoint (`reset_progress`).
 7. Tuer le worker pendant un job : l'enfant voit la fin de stdin, sauvegarde et sort. Relancer le worker : le job passe Interrompu environ 60 s après son dernier battement de cœur, au plus 60 s plus une période de scrutation (`recover_orphans` ; 61,6 s mesurées). Il est relançable (`requeue`) et reprend au pas sauvegardé.
-8. Après la fin, le nouveau codec apparaît dans l'onglet Comparer avec un niveau par λ : rechargement automatique (`new_done_jobs` puis `reload_fn`), un fichier `_run{id}.pt` par job, donc un niveau par λ dans la série.
+8. Après la fin, le nouveau codec apparaît dans l'onglet Tester avec un niveau par λ : rechargement automatique (`new_done_jobs` puis `reload_fn`), un fichier `_run{id}.pt` par job, donc un niveau par λ dans la série.
 
 ---
 
