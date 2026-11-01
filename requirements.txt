@@ -3,7 +3,8 @@
 
 # Calcul et modèle
 torch>=2.14.1
-numpy>=2.5.4
+# numpy 2.5 et plus exigent Python 3.12 : à relever avec la version de Python du Dockerfile (3.11)
+numpy>=1.26
 pandas>=3.1.0
 pyyaml>=6.0
 
