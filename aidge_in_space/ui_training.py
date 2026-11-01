@@ -6,9 +6,11 @@ testables sans lancer Gradio ; les callbacks de build_tabs() n'en sont que de mi
 convertissent les erreurs en messages simples (gr.Error, gr.Warning). Contrat : docs/conception_entrainement.md, § 2.7.
 """
 import functools
+import http.client
 import os
 import re
 import shutil
+import tarfile
 import threading
 import time
 import unicodedata
@@ -22,7 +24,8 @@ from matplotlib.figure import Figure
 from PIL import Image
 
 from . import config
-from .images import IMAGE_EXTS, MODE_LABELS
+from .dataset_catalog import CATALOG, download_archive
+from .images import IMAGE_EXTS, MODE_LABELS, list_images
 from .jobs import STATUS_LABELS, JobStore
 from .training.imaging import to_8bit
 from .training.config import PRESETS, TrainConfig, schedule_for
@@ -165,6 +168,49 @@ def _dangerous_member(info):
     return bool(info.flag_bits & 0x1)
 
 
+def _member_target(filename, names):
+    """! @brief Choisit où écrire un membre d'archive, à plat, sous un nom assaini.
+
+    @param filename  Nom du membre dans l'archive.
+    @param names     _Names du dossier de destination.
+    @return Couple (chemin réservé, None) pour une image, (None, message) pour un membre à ignorer.
+    """
+    parts = [p for p in re.split(r"[/\\]", filename) if p]
+    base = parts[-1] if parts else ""
+    if "__MACOSX" in parts or base.startswith("."):
+        return None, f"« {filename} » ignoré (fichier système ou caché)."
+    suffix = Path(base).suffix.lower()
+    if suffix not in IMAGE_EXTS:
+        return None, f"« {filename} » ignoré (ce n'est pas une image)."
+    try:
+        stem = safe_name(Path(base).stem)
+    except ValueError:
+        stem = "image"
+    return names.free(stem, suffix), None
+
+
+def _copy_member(src, target, total, max_total_bytes):
+    """! @brief Copie en flux un membre d'archive, en comptant les octets réellement écrits (bombe d'archive).
+
+    @param src              Flux binaire du membre.
+    @param target           Fichier à écrire.
+    @param total            Octets déjà extraits de l'archive.
+    @param max_total_bytes  Taille décompressée maximale cumulée.
+    @return Le nouveau total.
+    @throws ValueError si la limite est dépassée.
+    """
+    with open(target, "wb") as out:
+        while True:
+            block = src.read(_CHUNK)
+            if not block:
+                return total
+            total += len(block)
+            if total > max_total_bytes:
+                raise ValueError(f"archive refusée : taille décompressée supérieure à "
+                                 f"{max_total_bytes / 2 ** 20:.0f} Mo")
+            out.write(block)
+
+
 def extract_zip(zip_path, dest, max_total_bytes, max_files=MAX_ZIP_FILES, names=None):
     """! @brief Extrait les images d'une archive zip, à plat, après contrôle de tous les membres.
 
@@ -203,37 +249,57 @@ def extract_zip(zip_path, dest, max_total_bytes, max_files=MAX_ZIP_FILES, names=
             for info in infos:
                 if info.is_dir():
                     continue
-                parts = [p for p in re.split(r"[/\\]", info.filename) if p]
-                base = parts[-1] if parts else ""
-                if "__MACOSX" in parts or base.startswith("."):
-                    messages.append(f"« {info.filename} » ignoré (fichier système ou caché).")
+                target, message = _member_target(info.filename, names)
+                if target is None:
+                    messages.append(message)
                     continue
-                suffix = Path(base).suffix.lower()
-                if suffix not in IMAGE_EXTS:
-                    messages.append(f"« {info.filename} » ignoré (ce n'est pas une image).")
-                    continue
-                try:
-                    stem = safe_name(Path(base).stem)
-                except ValueError:
-                    stem = "image"
-                target = names.free(stem, suffix)
                 written.append(target)             # enregistré avant l'écriture : nettoyé en cas d'échec
-                with zf.open(info) as src, open(target, "wb") as out:
-                    while True:
-                        block = src.read(_CHUNK)
-                        if not block:
-                            break
-                        total += len(block)
-                        if total > max_total_bytes:
-                            raise ValueError(f"archive refusée : taille décompressée supérieure à "
-                                             f"{max_total_bytes / 2 ** 20:.0f} Mo")
-                        out.write(block)
+                with zf.open(info) as src:
+                    total = _copy_member(src, target, total, max_total_bytes)
         except BaseException as e:
             for p in written:
                 p.unlink(missing_ok=True)
             if isinstance(e, (zipfile.BadZipFile, RuntimeError, OSError, EOFError)):
                 raise ValueError("archive zip illisible") from None
             raise
+    return written, messages
+
+
+def extract_tar(tar_path, dest, max_total_bytes, max_files=MAX_ZIP_FILES):
+    """! @brief Extrait les images d'une archive tar (compressée ou non), à plat.
+
+    Le contenu est lu en flux et écrit sous un nom assaini : ni les chemins de l'archive ni ses liens, ignorés,
+    ne peuvent faire écrire hors de @p dest.
+    @param tar_path         Archive.
+    @param dest             Dossier de destination (créé si besoin).
+    @param max_total_bytes  Taille décompressée maximale cumulée.
+    @param max_files        Nombre maximal de membres.
+    @return Couple (images écrites, messages).
+    @throws ValueError si l'archive est illisible ou trop grosse.
+    """
+    dest = Path(dest)
+    dest.mkdir(parents=True, exist_ok=True)
+    names, written, messages = _Names(dest), [], []
+    total = 0
+    try:
+        with tarfile.open(tar_path) as tf:
+            for i, info in enumerate(tf, start=1):
+                if i > max_files:
+                    raise ValueError(f"archive refusée : plus de {max_files} fichiers")
+                if not info.isfile():
+                    continue
+                target, message = _member_target(info.name, names)
+                if target is None:
+                    messages.append(message)
+                    continue
+                written.append(target)             # enregistré avant l'écriture : nettoyé en cas d'échec
+                total = _copy_member(tf.extractfile(info), target, total, max_total_bytes)
+    except BaseException as e:
+        for p in written:
+            p.unlink(missing_ok=True)
+        if isinstance(e, (tarfile.TarError, OSError, EOFError)):
+            raise ValueError("archive tar illisible") from None
+        raise
     return written, messages
 
 
@@ -346,13 +412,73 @@ def create_dataset(name, files, train_dir=None, max_upload_mb=None):
     return dest, messages
 
 
+def install_catalog_dataset(key, train_dir=None, progress=None):
+    """! @brief Télécharge un jeu du catalogue et l'installe dans le dossier des jeux.
+
+    Un jeu déjà présent n'est pas retéléchargé. Sinon, l'archive est vérifiée, extraite dans un dossier de
+    préparation, puis ses images passent par create_dataset (mêmes contrôles et même tout ou rien qu'un envoi).
+    Le dossier de préparation porte un nom fixe : s'il reste d'un arrêt brutal, le prochain essai le supprime.
+    Appels à sérialiser pour un même jeu (concurrency_limit=1 côté Gradio).
+    @param key        Clé de dataset_catalog.CATALOG.
+    @param train_dir  Dossier des jeux ; None : config.TRAIN_DIR lu à l'appel.
+    @param progress   Fonction appelée avec (fraction ou None, description), ou None.
+    @return Triplet (dossier du jeu, messages, vrai si le jeu vient d'être installé).
+    @throws ValueError si le jeu est inconnu, si le disque manque de place ou si le téléchargement échoue.
+    """
+    entry = CATALOG.get(key)
+    if entry is None:
+        raise ValueError("Choisissez un jeu à télécharger.")
+    root = Path(train_dir) if train_dir is not None else Path(config.TRAIN_DIR)
+    dest = root / entry.key
+    if dest.is_dir() and list_images(dest):
+        return dest, [], False
+    root.mkdir(parents=True, exist_ok=True)
+    needed = entry.size_bytes + 2 * entry.unpacked_mb * 2 ** 20    # archive, images extraites, copie dans le jeu
+    free = shutil.disk_usage(root).free
+    if free < needed:
+        raise ValueError(f"Pas assez de place sur le disque : {needed / 2 ** 30:.1f} Gio nécessaires, "
+                         f"{free / 2 ** 30:.1f} Gio libres.")
+    report = progress or (lambda *_: None)
+    stage = root / f"{STAGING_PREFIX}telechargement-{entry.key}"
+    shutil.rmtree(stage, ignore_errors=True)
+    stage.mkdir()
+    try:
+        archive = stage / "archive"
+        download_archive(entry, archive, lambda f: report(f, f"Téléchargement de {entry.key}"))
+        report(None, "Extraction et vérification des images")
+        budget = (entry.unpacked_mb + 1) * 2 ** 20
+        extract = extract_zip if zipfile.is_zipfile(archive) else extract_tar
+        images, _ = extract(archive, stage / "images", budget, max_files=2 * entry.n_images + 100)
+        archive.unlink()
+        folder, messages = create_dataset(entry.key, images, train_dir=root, max_upload_mb=entry.unpacked_mb + 1)
+    except (OSError, http.client.HTTPException) as e:
+        raise ValueError(f"Échec du téléchargement de « {entry.key} » : {e}. Réessayez.") from None
+    finally:
+        shutil.rmtree(stage, ignore_errors=True)
+    return folder, messages, True
+
+
+def catalog_choices():
+    """! @brief Jeux du catalogue pour un menu : couples (libellé, clé)."""
+    return [(e.label, e.key) for e in CATALOG.values()]
+
+
+def catalog_details(key):
+    """! @brief Fiche d'un jeu du catalogue, en Markdown (vide si le jeu est inconnu)."""
+    e = CATALOG.get(key)
+    if e is None:
+        return ""
+    text = (f"{e.description}\n\n{e.n_images} images, téléchargement de {e.size_bytes / 10 ** 6:.0f} Mo. "
+            f"Licence : {e.license}. [Source]({e.source})")
+    return f"{text}\n\n**Conseil :** {e.advice}" if e.advice else text
+
+
 def list_datasets(train_dir=None):
     """! @brief Jeux d'images d'entraînement existants.
 
     @param train_dir  Dossier des jeux ; None : config.TRAIN_DIR.
     @return Liste triée par nom de dictionnaires @c name, @c path, @c n_images et @c samples (6 vignettes au plus).
     """
-    from .images import list_images
     root = Path(train_dir) if train_dir is not None else Path(config.TRAIN_DIR)
     out = []
     if not root.is_dir():
@@ -860,10 +986,17 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
 
     # ------------------------------------------------ Données
     with gr.Tab("Données", id="donnees"):
-        gr.Markdown("Ajoutez ici les images avec lesquelles le modèle apprendra : plusieurs images, ou une "
-                    "archive **zip**. Des images de plus de 256 px de côté conviennent le mieux.")
+        gr.Markdown("Choisissez les images avec lesquelles le modèle apprendra : téléchargez un jeu prêt à "
+                    "l'emploi, ou déposez les vôtres (plusieurs images, ou une archive **zip**). Des images de "
+                    "plus de 256 px de côté conviennent le mieux.")
         with gr.Row():
             with gr.Column(scale=1, min_width=300):
+                gr.Markdown("### Télécharger un jeu prêt à l'emploi")
+                c_pick = gr.Dropdown(catalog_choices(), value=next(iter(CATALOG)), label="Jeu à télécharger")
+                c_details = gr.Markdown(catalog_details(next(iter(CATALOG))))
+                c_go = gr.Button("Télécharger", variant="primary")
+                c_status = gr.Markdown()
+                gr.Markdown("### Déposer vos images")
                 d_name = gr.Textbox(label="Nom du jeu", info="Un nom court, par exemple « lune-lro ». "
                                     "Si le jeu existe déjà, les images y sont ajoutées.")
                 d_files = gr.File(label="Images ou archive zip", file_count="multiple",
@@ -948,18 +1081,35 @@ def build_tabs(mode, reload_outputs, reload_fn, store=None, tabs=None, menus_fn=
             raise gr.Error(str(e)) from None
         for m in msgs[:MAX_WARNINGS]:
             gr.Warning(m)
+        return dataset_ready(dest, msgs, 20)
+
+    # État de l'onglet une fois un jeu prêt : au plus max_msgs remarques affichées.
+    def dataset_ready(dest, msgs, max_msgs):
         n = next((d["n_images"] for d in list_datasets() if d["name"] == dest.name), 0)
         status = f"Jeu **{dest.name}** prêt : {n} images."
         if msgs:
-            status += "\n\n" + "\n".join(f"- {m}" for m in msgs[:20])
-            if len(msgs) > 20:
-                status += f"\n- … et {len(msgs) - 20} autres remarques."
+            status += "\n\n" + "\n".join(f"- {m}" for m in msgs[:max_msgs])
+            if len(msgs) > max_msgs:
+                status += f"\n- … et {len(msgs) - max_msgs} autres remarques."
         ch = dataset_choices()
         return (status, datasets_table(), gr.update(choices=ch, value=dest.name), dataset_samples(dest.name),
                 gr.update(choices=ch, value=dest.name))
 
+    # Adaptateur de install_catalog_dataset. Pas de fenêtres d'avertissement : les remarques sont connues d'avance.
+    def on_download(key, progress=gr.Progress()):
+        try:
+            dest, msgs, installed = install_catalog_dataset(key, progress=lambda f, desc: progress(f, desc=desc))
+        except ValueError as e:
+            raise gr.Error(str(e)) from None
+        if not installed:
+            gr.Info(f"Le jeu « {dest.name} » est déjà présent : rien à télécharger.")
+        return dataset_ready(dest, msgs, 3)
+
     d_go.click(on_create, [d_name, d_files], [d_status, d_table, d_pick, d_gallery, t_dataset])
     d_pick.input(lambda n: dataset_samples(n), d_pick, d_gallery)
+    c_pick.input(catalog_details, c_pick, c_details)
+    # Un téléchargement à la fois : un second clic attend, puis constate que le jeu est présent.
+    c_go.click(on_download, c_pick, [c_status, d_table, d_pick, d_gallery, t_dataset], concurrency_limit=1)
 
     # ---- callbacks Entraînement
     # Remplit le formulaire avec un préréglage.
