@@ -698,21 +698,19 @@ appeler une fois tous les onglets créés :
    - `check_exposure(host: str, users: list, bind: str | None, in_docker: bool) -> None` : adresse
      effective = `bind` si `in_docker` et `bind`, sinon `host` ; si elle n'est pas de bouclage et
      que `users` est vide → `ValueError("Exposition réseau refusée : l'interface écouterait sur <adresse> sans authentification. Définissez AIDGE_UI_USERS (login:motdepasse) ou gardez 127.0.0.1.")`.
-4. `main()` :
+4. `main()` (authentification retirée temporairement : `parse_users` et `check_exposure` ne sont plus appelées) :
    - hôte = `--host` s'il est donné, sinon `AIDGE_UI_HOST`, sinon `127.0.0.1` (le défaut d'argparse
      devient `None`) ;
-   - `users = parse_users(os.environ.get("AIDGE_UI_USERS"))` ;
-   - `check_exposure(host, users, os.environ.get("AIDGE_UI_BIND"), Path("/.dockerenv").exists())` ;
    - `max_upload_mb()` ;
    - en cas de `ValueError` : message sur stderr et `SystemExit(2)` ;
-   - `launch(..., auth=users or None, max_file_size=f"{mb}mb", theme=gr.themes.Soft())`.
+   - `launch(..., max_file_size=f"{mb}mb", theme=gr.themes.Soft())`.
 
 | Variable | Défaut | Rôle |
 | :- | :- | :- |
 | `AIDGE_RUNS_DIR` | `outputs/runs` | dossier de la base et des journaux (`/runs` en Docker) |
 | `AIDGE_UI_HOST` | `127.0.0.1` | adresse d'écoute de Gradio si `--host` est absent |
-| `AIDGE_UI_USERS` | vide | comptes `login:motdepasse,…` ; obligatoire si l'adresse effective n'est pas locale |
-| `AIDGE_UI_BIND` | `127.0.0.1` | Docker : adresse de l'hôte où le port 7860 est publié ; transmise au conteneur, prise en compte seulement dans Docker |
+| `AIDGE_UI_USERS` | vide | ignorée pour l'instant (authentification retirée temporairement) |
+| `AIDGE_UI_BIND` | `127.0.0.1` | Docker : adresse de l'hôte où le port 7860 est publié |
 | `AIDGE_MAX_UPLOAD_MB` | 500 | taille maximale d'un envoi (Gradio `max_file_size` et `create_dataset`) |
 
 ### 2.9 `codecs/balle2017.py` : regroupement par série (ingénieur entraînement)
@@ -972,7 +970,7 @@ découverts, donc sur les vrais checkpoints de `outputs/checkpoints` ; les nouve
 | **Zip slip** (`../`, chemin absolu, lettre de lecteur, lien symbolique) | Contrôle de tous les membres avant écriture, archive entière refusée ; arborescence aplatie et noms assainis |
 | **Bombe zip et gros envois** | Somme déclarée bornée (`UNZIP_FACTOR × AIDGE_MAX_UPLOAD_MB`), compteur réel pendant l'extraction, au plus 10 000 membres ; `max_file_size` Gradio ; `DecompressionBombError` de PIL traitée |
 | **Noms de fichiers dangereux** | `safe_name` (ASCII, caractères sûrs, noms réservés Windows) |
-| **Exposition réseau** | Écoute par défaut `127.0.0.1` (Gradio et compose) ; refus au démarrage sans `AIDGE_UI_USERS` si l'adresse effective n'est pas locale ; `AIDGE_UI_BIND` pris en compte seulement dans Docker |
+| **Exposition réseau** | Écoute par défaut `127.0.0.1` (Gradio et compose) ; authentification et refus au démarrage retirés temporairement : hors de cette adresse, l'accès n'est protégé que par le pare-feu et Authelia |
 | **Injection SQL ou de commande** | Requêtes paramétrées uniquement ; sous-processus en liste, sans `shell=True` ; le nom du run n'apparaît jamais dans une commande |
 | **`torch.load` avec `weights_only=True`** (défaut de torch ≥ 2.6) | Contenu du checkpoint limité aux types natifs (§ 2.3.2) |
 | **Encodage cp1252 de la console Windows** | Le worker impose `PYTHONIOENCODING=utf-8` à l'enfant ; `train` et `worker` reconfigurent stdout en UTF-8 |

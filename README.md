@@ -174,7 +174,6 @@ flowchart LR
 | `AIDGE_RUNS_DIR` | `outputs/runs` (`/runs` sous Docker) | emplacement de la file d'attente et des journaux |
 | `AIDGE_UI_HOST` | `127.0.0.1` | adresse d'écoute de l'interface |
 | `AIDGE_UI_BIND` | `127.0.0.1` | sous Docker, adresse de l'hôte qui publie le port 7860 |
-| `AIDGE_UI_USERS` | vide | comptes au format `login:mdp,login2:mdp2`, obligatoires si l'interface n'est pas locale |
 | `AIDGE_MAX_UPLOAD_MB` | `500` | taille maximale d'un dépôt d'images |
 | `AIDGE_ATTENTE_MAX` | `120` | attente maximale du lanceur, en secondes |
 

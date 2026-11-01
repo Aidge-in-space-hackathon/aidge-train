@@ -17,11 +17,10 @@ sudo useradd --create-home --groups docker aidge-runner
 sudo install -d -o aidge-runner -g aidge-runner /opt/aidge-train
 ```
 
-Les réglages propres au serveur vont dans `/opt/aidge-train/.env`, jamais dans le dépôt. Par défaut l'interface n'écoute que sur `127.0.0.1`. Pour que Caddy la joigne, on indique l'adresse de la VM sur le réseau local ; l'interface exige alors des comptes (tant que l'identité n'est pas lue depuis Authelia, voir la feuille de route du cahier des charges) :
+Les réglages propres au serveur vont dans `/opt/aidge-train/.env`, jamais dans le dépôt. Par défaut l'interface n'écoute que sur `127.0.0.1`. Pour que Caddy la joigne, on indique l'adresse de la VM sur le réseau local. L'authentification de l'interface est retirée pour l'instant : l'accès n'est protégé que par le pare-feu et par Authelia devant Caddy.
 
 ```bash
 AIDGE_UI_BIND=192.168.0.70
-AIDGE_UI_USERS=...
 AIDGE_MAX_UPLOAD_MB=500
 ```
 

@@ -723,8 +723,9 @@ def main(argv=None):
 
     @param argv  Arguments (--host, --port, --inbrowser) ; ceux de la ligne de commande si None.
 
-    Variables d'environnement : AIDGE_UI_HOST, AIDGE_UI_USERS, AIDGE_UI_BIND, AIDGE_MAX_UPLOAD_MB.
-    @throws SystemExit (code 2) si la configuration d'accès est invalide ou expose le réseau sans authentification.
+    Variables d'environnement : AIDGE_UI_HOST, AIDGE_MAX_UPLOAD_MB.
+    Authentification retirée temporairement : parse_users() et check_exposure() ne sont plus appelées.
+    @throws SystemExit (code 2) si la taille maximale d'envoi est invalide.
     """
     if hasattr(sys.stdout, "reconfigure"):
         sys.stdout.reconfigure(encoding="utf-8")
@@ -735,8 +736,6 @@ def main(argv=None):
     args = ap.parse_args(argv)
     host = args.host or os.environ.get("AIDGE_UI_HOST") or "127.0.0.1"
     try:
-        users = parse_users(os.environ.get("AIDGE_UI_USERS"))
-        check_exposure(host, users, os.environ.get("AIDGE_UI_BIND"), Path("/.dockerenv").exists())
         upload_mb = ui_training.max_upload_mb()
     except ValueError as e:
         print(e, file=sys.stderr)
@@ -744,7 +743,7 @@ def main(argv=None):
     download_kodak()
     discover()
     build().queue().launch(server_name=host, server_port=args.port, inbrowser=args.inbrowser,
-                           auth=users or None, max_file_size=f"{upload_mb}mb", theme=gr.themes.Soft(),
+                           max_file_size=f"{upload_mb}mb", theme=gr.themes.Soft(),
                            allowed_paths=[str(config.CKPT_DIR)])
 
 

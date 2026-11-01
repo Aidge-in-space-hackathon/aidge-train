@@ -43,7 +43,7 @@ puis ouvrez <http://localhost:7860>. Ne mélangez pas les deux méthodes : l'int
 
 ### Se connecter
 
-Par défaut, l'interface n'est accessible que depuis votre propre ordinateur et ne demande aucun identifiant. Si l'équipe a ouvert la plateforme sur le réseau, la page demande un identifiant et un mot de passe : ils vous sont donnés par la personne qui administre la machine.
+Par défaut, l'interface n'est accessible que depuis votre propre ordinateur. Elle ne demande aucun identifiant pour l'instant, même si l'équipe a ouvert la plateforme sur le réseau.
 
 ## 2. Ajouter des images
 
