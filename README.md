@@ -182,7 +182,7 @@ Sous Docker, ces valeurs se placent dans l'environnement ou dans un fichier `.en
 
 ## Contribuer
 
-`main` n'évolue que par pull request, avec une CI au vert : tests, fichiers compose, construction de l'image et démarrage de l'application et du worker. Dependabot propose chaque semaine les mises à jour de dépendances, soumises à la même CI.
+`main` n'évolue que par pull request, avec une CI au vert : tests, fichiers compose, construction de l'image et démarrage de l'application et du worker. Dependabot propose chaque semaine les mises à jour de dépendances, soumises à la même CI : les mineures (pip, GitHub Actions) sont fusionnées automatiquement si elle réussit, les majeures et l'image Docker restent à valider à la main.
 
 ```bash
 python -m pytest tests                  # tous les tests

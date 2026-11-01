@@ -1,6 +1,7 @@
 # Intégration et déploiement continus de la plateforme aidge-train
 #
 # Pull request : validation des fichiers compose, build de l'image CPU, tests, démarrage de l'app et du worker.
+# Les mises à jour mineures Dependabot (pip, GitHub Actions) sont ensuite fusionnées si ces étapes réussissent.
 # Push sur main : en plus, publication des images CPU et GPU sur GHCR (ghcr.io/<propriétaire>/<dépôt>),
 # puis déploiement sur le serveur par un runner auto-hébergé : le serveur va chercher le travail chez
 # GitHub, aucun port entrant à ouvrir sur la box ni sur le VPN.
@@ -87,6 +88,40 @@ jobs:
           sleep 20
           docker logs aidge-worker
           [ "$(docker inspect -f '{{.State.Running}}' aidge-worker)" = "true" ]
+
+  # Le job dépend de test : rien n'est fusionné sans CI au vert, sans réglage de protection de branche.
+  # Restent à valider à la main : versions majeures et image Docker (3.11 vers 3.15 compte comme « mineure »).
+  # Une fusion faite avec GITHUB_TOKEN ne déclenche aucun workflow sur main : ni publication ni déploiement,
+  # donc pas de redémarrage du worker à chaque mise à jour. Le prochain merge humain (ou un lancement
+  # manuel de ce workflow) les embarque.
+  automerge:
+    name: Fusion automatique (Dependabot)
+    needs: test
+    # Auteur et dernier acteur : une pull request reprise par un humain n'est pas fusionnée
+    if: >-
+      github.event_name == 'pull_request'
+      && github.event.pull_request.user.login == 'dependabot[bot]'
+      && github.actor == 'dependabot[bot]'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Type de mise à jour
+        id: meta
+        uses: dependabot/fetch-metadata@v2
+
+      - name: Fusion
+        if: >-
+          (steps.meta.outputs.package-ecosystem == 'pip' || steps.meta.outputs.package-ecosystem == 'github_actions')
+          && (steps.meta.outputs.update-type == 'version-update:semver-patch' || steps.meta.outputs.update-type == 'version-update:semver-minor')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: gh pr merge "$PR_URL" --merge --match-head-commit "$HEAD_SHA"
 
   publish:
     name: Publication (${{ matrix.variant }})
