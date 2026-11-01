@@ -157,6 +157,7 @@ C'est pourquoi un même run peut comporter plusieurs λ : chacun produit un mod�
 
 Sélectionnez d'abord le job dans le menu « Entraînement à examiner ».
 
+- **Télécharger le modèle** : sous les courbes, la zone « Modèle entraîné » propose le fichier `.pt` du job choisi dès que son premier point de sauvegarde existe. Pour un job en cours, c'est le dernier point de sauvegarde, pas le modèle final : attendez le statut Terminé pour le modèle complet.
 - **Annuler** : ouvrez la section « Annuler cet entraînement », cochez « Je confirme l'annulation », puis cliquez sur **Annuler**. Un job en attente est annulé aussitôt. Un job en cours sauvegarde son avancement puis s'arrête dans les secondes qui suivent.
 - **Relancer** : disponible pour un job En échec, Annulé ou Interrompu. Le job repart dans la file et **reprend à son dernier point de sauvegarde**, sans refaire ce qui est déjà fait. Si le job échoue de nouveau, lisez le message d'erreur dans le résumé.
 - **Dupliquer la configuration** : copie les réglages du job dans l'onglet 1. Entraîner (le nom reçoit « (copie) »), pour en lancer un nouveau en changeant une valeur. Si le jeu d'images d'origine n'existe plus, un avertissement vous demande d'en choisir un autre.

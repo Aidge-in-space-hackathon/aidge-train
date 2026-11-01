@@ -416,6 +416,17 @@ def test_duplicate_config(store, train_dir):
         ui.duplicate_config(store, 999)
 
 
+def test_job_model_file(store, tmp_path):
+    ckpt = tmp_path / "modele_run1.pt"
+    jid = store.submit(TrainConfig(name="t", train_dir=str(tmp_path), N=16, crop=64, steps=2).to_dict())
+    assert ui.job_model_file(store, None) is None and ui.job_model_file(store, 9999) is None
+    assert ui.job_model_file(store, jid) is None                     # pas encore de checkpoint
+    store.set_ckpt_path(jid, str(ckpt))
+    assert ui.job_model_file(store, jid) is None                     # chemin connu, fichier absent
+    ckpt.write_bytes(b"x")
+    assert ui.job_model_file(store, jid) == str(ckpt)
+
+
 def test_worker_banner(store):
     assert "lancer_plateforme.bat" in ui.worker_banner(store) or "docker compose up worker" in ui.worker_banner(store)
     store.worker_heartbeat("w")

@@ -17,7 +17,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from PIL import Image
 
-from . import backends, bench, profiling, ui_training
+from . import backends, bench, config, profiling, ui_training
 from .codecs import LearnedCodec, all_codecs, closest_level, discover, get
 from .images import MODE_LABELS, convert, datasets, download_kodak, load_image
 from .metrics import MS_SSIM_MIN_SIDE
@@ -744,7 +744,8 @@ def main(argv=None):
     download_kodak()
     discover()
     build().queue().launch(server_name=host, server_port=args.port, inbrowser=args.inbrowser,
-                           auth=users or None, max_file_size=f"{upload_mb}mb", theme=gr.themes.Soft())
+                           auth=users or None, max_file_size=f"{upload_mb}mb", theme=gr.themes.Soft(),
+                           allowed_paths=[str(config.CKPT_DIR)])
 
 
 if __name__ == "__main__":

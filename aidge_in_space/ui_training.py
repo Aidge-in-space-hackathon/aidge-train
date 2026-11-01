@@ -786,6 +786,22 @@ def job_details(store, job_id, n_log_lines=50):
     return _curves(metrics), _log_tail(store.job_dir(job.id) / "train.log", n_log_lines), _summary(job)
 
 
+def job_model_file(store, job_id):
+    """! @brief Checkpoint à télécharger pour un job.
+
+    @param store   JobStore.
+    @param job_id  Identifiant du job, ou None.
+    @return Chemin du checkpoint s'il existe sur le disque, sinon None (job inconnu, pas encore de checkpoint).
+    """
+    if job_id is None:
+        return None
+    try:
+        path = store.get(int(job_id)).ckpt_path
+    except KeyError:
+        return None
+    return str(path) if path and Path(path).is_file() else None
+
+
 def cancel_job(store, job_id, confirmed):
     """! @brief Annule un job après confirmation.
 
@@ -1043,6 +1059,8 @@ def build_tabs(store=None, tabs=None):
         s_pick = gr.Dropdown(jobs0, value=jobs0[0][1] if jobs0 else None, label="Entraînement à examiner")
         s_summary = gr.Markdown("Sélectionnez un entraînement.")
         s_plot = gr.Plot(label="Courbes")
+        s_file = gr.File(label="Modèle entraîné (checkpoint .pt, à télécharger)", interactive=False,
+                         value=job_model_file(store, jobs0[0][1] if jobs0 else None))
         with gr.Row():
             s_test = gr.Button("Tester ce modèle", variant="primary")
             s_requeue = gr.Button("Relancer")
@@ -1145,6 +1163,7 @@ def build_tabs(store=None, tabs=None):
             return None, "", "Ce job n'existe plus."
 
     s_pick.change(show, s_pick, [s_plot, s_log, s_summary], show_progress="hidden")
+    s_pick.change(lambda j: job_model_file(store, j), s_pick, s_file, show_progress="hidden")
 
     # Adaptateur de cancel_job.
     def on_cancel(job_id, ok):
@@ -1201,10 +1220,13 @@ def build_tabs(store=None, tabs=None):
             choices = job_choices(store)
             pick = gr.update(choices=choices) if choices != last_choices else gr.update()
             fig, log, summary = show(job_id) if job_id is not None else (gr.update(), gr.update(), gr.update())
-            return (jobs_table(store), worker_banner(store), pick, fig, log, summary, done, choices) + reload
+            model = job_model_file(store, job_id) if job_id is not None else None
+            return (jobs_table(store), worker_banner(store), pick, fig, log, summary, done, choices,
+                    model) + reload
 
         timer.tick(on_tick, [mode, s_pick, s_seen, s_choices],
-                   [s_table, s_banner, s_pick, s_plot, s_log, s_summary, s_seen, s_choices] + reload_outputs,
+                   [s_table, s_banner, s_pick, s_plot, s_log, s_summary, s_seen, s_choices, s_file]
+                   + reload_outputs,
                    show_progress="hidden")
 
         # Chargement d'une session : jeux, jobs et codecs d'après l'état actuel du serveur.
