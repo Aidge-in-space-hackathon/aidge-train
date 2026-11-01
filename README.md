@@ -233,4 +233,4 @@ La feuille de route complète figure dans le [cahier des charges](docs/cahier_de
 
 ## Licence
 
-Ce dépôt ne contient pas encore de fichier de licence.
+Le code de ce dépôt est distribué sous licence MIT : voir le fichier [`LICENSE`](LICENSE). Elle ne couvre pas les jeux d'images ni les poids pré-entraînés téléchargés à l'usage, qui gardent la licence de leur source.
