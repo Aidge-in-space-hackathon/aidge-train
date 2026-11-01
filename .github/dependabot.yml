@@ -32,3 +32,8 @@ updates:
       interval: weekly
     commit-message:
       prefix: "docker"
+    # Python 3.15 casse le build (pas de wheel onnxruntime) : changement de version à préparer à la main,
+    # avec la borne de numpy ci-dessus
+    ignore:
+      - dependency-name: python
+        versions: [">=3.12"]

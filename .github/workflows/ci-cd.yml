@@ -2,6 +2,7 @@
 #
 # Pull request : validation des fichiers compose, build de l'image CPU, tests, démarrage de l'app et du worker.
 # Les mises à jour mineures Dependabot (pip, GitHub Actions) sont ensuite fusionnées si ces étapes réussissent.
+# Push sur dev : les mêmes vérifications, sans publication ni déploiement.
 # Push sur main : en plus, publication des images CPU et GPU sur GHCR (ghcr.io/<propriétaire>/<dépôt>),
 # puis déploiement sur le serveur par un runner auto-hébergé : le serveur va chercher le travail chez
 # GitHub, aucun port entrant à ouvrir sur la box ni sur le VPN.
@@ -14,7 +15,7 @@ name: CI/CD
 
 on:
   push:
-    branches: [main]
+    branches: [main, dev]
     paths-ignore: ["**.md", "docs/**", "Ressources/**"]
   pull_request:
     paths-ignore: ["**.md", "docs/**", "Ressources/**"]
