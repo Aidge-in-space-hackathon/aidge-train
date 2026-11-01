@@ -2,7 +2,7 @@
 # Installées par scripts/setup_venv.* (venv) et par le Dockerfile.
 
 # Calcul et modèle
-torch>=2.14.1
+torch>=2.15.0
 # numpy 2.5 et plus exigent Python 3.12 : à relever avec la version de Python du Dockerfile (3.11)
 numpy>=1.26
 pandas>=3.1.0
