@@ -8,6 +8,10 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "deps"
+    # numpy 2.5 et plus exigent Python 3.12, l'image est en 3.11 : à retirer en changeant de version de Python
+    ignore:
+      - dependency-name: numpy
+        versions: [">=2.5"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
