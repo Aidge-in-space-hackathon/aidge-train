@@ -112,7 +112,7 @@ jobs:
     steps:
       - name: Type de mise à jour
         id: meta
-        uses: dependabot/fetch-metadata@v2
+        uses: dependabot/fetch-metadata@v3
 
       - name: Fusion
         if: >-
