@@ -14,7 +14,7 @@ matplotlib>=3.11.2
 
 # Export et vérification ONNX (entrée d'Aidge)
 onnx>=1.16
-onnxruntime>=1.18
+onnxruntime>=1.31.1
 
 # Aidge : import ONNX, inférence CPU, export C++, quantification.
 # Wheels publiés seulement pour Windows et Linux x86_64 : ignorés ailleurs (macOS, ARM).
