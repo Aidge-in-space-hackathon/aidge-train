@@ -416,6 +416,17 @@ def test_duplicate_config(store, train_dir):
         ui.duplicate_config(store, 999)
 
 
+def test_job_model_file(store, tmp_path):
+    ckpt = tmp_path / "modele_run1.pt"
+    jid = store.submit(TrainConfig(name="t", train_dir=str(tmp_path), N=16, crop=64, steps=2).to_dict())
+    assert ui.job_model_file(store, None) is None and ui.job_model_file(store, 9999) is None
+    assert ui.job_model_file(store, jid) is None                     # pas encore de checkpoint
+    store.set_ckpt_path(jid, str(ckpt))
+    assert ui.job_model_file(store, jid) is None                     # chemin connu, fichier absent
+    ckpt.write_bytes(b"x")
+    assert ui.job_model_file(store, jid) == str(ckpt)
+
+
 def test_worker_banner(store):
     assert "lancer_plateforme.bat" in ui.worker_banner(store) or "docker compose up worker" in ui.worker_banner(store)
     store.worker_heartbeat("w")
@@ -443,9 +454,9 @@ def test_app_build_contient_les_onglets(store, tmp_path, monkeypatch):
     demo = app.build()
     assert isinstance(demo, gr.Blocks)
     labels = {getattr(b, "label", None) for b in demo.blocks.values() if isinstance(b, gr.Tab)}
-    assert {"Données", "Entraînement", "Suivi"} <= labels
+    assert labels == {"1. Entraîner", "2. Suivre", "3. Tester", "4. Valider"}
     ids = {getattr(b, "id", None) for b in demo.blocks.values() if isinstance(b, gr.Tab)}
-    assert {"donnees", "entrainement", "suivi"} <= ids
+    assert ids == {"entrainement", "suivi", "tester", "valider"}
 
 
 def test_app_parse_users():
@@ -696,7 +707,7 @@ def test_app_codec_menus_meme_forme_que_reload_codecs(store, tmp_path, monkeypat
     try:
         discover()
         for mode in ("gris", "rgb"):
-            assert len(app.codec_menus(mode)) == len(app.reload_codecs(mode)) == 7
+            assert len(app.codec_menus(mode)) == len(app.reload_codecs(mode)) == 4
     finally:
         monkeypatch.undo()
         discover()
@@ -718,9 +729,9 @@ def test_session_neuve_voit_jeu_et_checkpoint_crees_apres_build(store, tmp_path,
         demo = app.build()
         on_load = _fonction(demo, "on_load")
         # avant : ni jeu ni série
-        out = on_load("gris", None, None, None)
+        out = on_load("gris", None, None)
         assert out[0]["choices"] == [] and out[0]["value"] is None
-        assert not any("Plage" in str(c) for c in out[8]["choices"])
+        assert not any("Plage" in str(c) for c in out[6]["choices"])
         # après build : un jeu et un job terminé avec son checkpoint
         for i in range(3):
             write_png(train / "lune" / f"i{i}.png", size=96, seed=i)
@@ -733,21 +744,49 @@ def test_session_neuve_voit_jeu_et_checkpoint_crees_apres_build(store, tmp_path,
         loop.train(cfg, loop.checkpoint_path(cfg, job.id, ck), device=torch.device("cpu"),
                    run_info={"job_id": job.id, "name": "Plage", "author": "Z", "commit": ""})
         store.finish(jid, "done")
-        out = on_load("gris", None, None, None)
+        out = on_load("gris", None, None)
         assert [v for _, v in out[0]["choices"]] == ["lune"] and out[0]["value"] == "lune"
-        assert out[1]["value"] == "lune"                                    # menu de la visionneuse de la session
-        assert any(v == jid for _, v in out[4]["choices"])                   # job visible dans le Suivi
-        assert out[7] == {jid}
-        libelles = [str(c) for upd in out[8:14] for c in (upd.get("choices") or [])]
+        assert len(out[1]) == 3                                              # aperçu du jeu choisi
+        assert any(v == jid for _, v in out[2]["choices"])                   # job visible dans Suivre
+        assert out[2]["value"] == jid                                        # et sélectionné d'office
+        assert out[5] == {jid}
+        libelles = [str(c) for upd in out[6:9] for c in (upd.get("choices") or [])]
         assert any("Plage" in c for c in libelles), libelles                 # série dans les menus de codecs
-        assert "Plage" in out[14]                                            # tableau Markdown des codecs
+        assert "Plage" in out[9]                                             # tableau Markdown des codecs
         # une seconde session, même ensemble : relecture sans nouvelle découverte
         monkeypatch.setattr(app, "reload_codecs", lambda m: pytest.fail("rechargement inattendu"), raising=True)
-        out2 = on_load("gris", None, None, None)
-        assert any("Plage" in str(c) for upd in out2[8:14] for c in (upd.get("choices") or []))
+        out2 = on_load("gris", None, None)
+        assert any("Plage" in str(c) for upd in out2[6:9] for c in (upd.get("choices") or []))
+        # « Tester ce modèle » : retrouve la série et le niveau du job, en mode gris d'après le modèle
+        store.set_ckpt_path(jid, str(loop.checkpoint_path(cfg, jid, ck)))
+        modele, niveau, refs = app.open_model(store.get(jid).ckpt_path)
+        assert "plage" in modele["value"] and app.model_mode(modele["value"]) == "gris"
+        assert app.model_choices()[0][1] == modele["value"]                  # les modèles entraînés ici d'abord
+        assert niveau["value"] == 0 and set(refs["value"]) == set(app.REFERENCE_KEYS)
+        assert modele["value"] not in [v for _, v in refs["choices"]]
+        # onglet Tester, avec une image importée : original, modèle, erreur, puis une référence
+        img = Image.fromarray(np.random.default_rng(0).integers(0, 255, (64, 64), dtype=np.uint8))
+        galerie, zooms, mesures = app.run_test(None, None, img, modele["value"], 0, ["jpeg"], "torch", False, 50, 50,
+                                               progress=lambda *a, **k: None)
+        assert len(galerie) == 4 and len(zooms) == 3 and list(mesures["codec"])[1] == "JPEG"
     finally:
         monkeypatch.undo()
         discover()
+
+
+def test_open_model_sans_checkpoint_refuse(codecs_non_charges):
+    import gradio as gr
+    from aidge_in_space import app
+    for chemin in (None, "outputs/checkpoints/absent_run999.pt"):
+        with pytest.raises(gr.Error):
+            app.open_model(chemin)
+
+
+def test_model_updates_sans_modele():
+    from aidge_in_space import app
+    niveau, refs = app.model_updates(None)
+    assert niveau["choices"] == [] and niveau["value"] is None
+    assert refs["choices"] == [] and refs["value"] == []
 
 
 def test_curseur_nombre_d_images_jamais_degenere():

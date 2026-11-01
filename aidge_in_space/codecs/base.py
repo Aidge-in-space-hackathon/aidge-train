@@ -63,7 +63,7 @@ class Codec:
     label = ""
     ## @c "Classique" ou @c "Appris" ; les codecs classiques sont listés en premier.
     family = ""
-    ## Description courte affichée dans l'onglet « Codecs et aide ».
+    ## Description courte affichée dans l'section « Aide ».
     description = ""
     ## Modes d'image acceptés : @c "gris" et/ou @c "rgb".
     modes = ("gris", "rgb")
@@ -162,7 +162,7 @@ class LearnedCodec(Codec):
     def architecture(self, level):
         """! @brief Texte court qui distingue deux architectures, par exemple « N=128, M=192 ».
 
-        Deux niveaux de même architecture ont le même coût embarqué : l'onglet « Encodeur embarqué »
+        Deux niveaux de même architecture ont le même coût embarqué : la section « Coût sur la carte »
         ne profile qu'un niveau par architecture.
         @param level  Level du codec.
         @return Description de l'architecture.

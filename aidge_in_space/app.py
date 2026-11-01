@@ -1,7 +1,7 @@
-"""! @brief Interface Gradio du banc d'essai.
+"""! @brief Interface Gradio de la plateforme : entraîner, suivre, tester et valider un modèle.
 
 Lancement : @c python -m aidge_in_space.app puis http://127.0.0.1:7860. Chaque action est aussi
-exposée par l'API Gradio (api_name : compare, explore, benchmark, profile, compare_encoders,
+exposée par l'API Gradio (api_name : test_model, benchmark, profile, compare_encoders,
 check_backends), utilisable avec gradio_client.
 """
 import argparse
@@ -17,7 +17,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from PIL import Image
 
-from . import backends, bench, profiling, ui_training
+from . import backends, bench, config, profiling, ui_training
 from .codecs import LearnedCodec, all_codecs, closest_level, discover, get
 from .images import MODE_LABELS, convert, datasets, download_kodak, load_image
 from .metrics import MS_SSIM_MIN_SIDE
@@ -31,6 +31,8 @@ ZOOM_FACTOR = 3
 ## Tailles d'image proposées pour le profilage : libellé -> (H, W).
 PROFILE_PRESETS = {"512 x 512": (512, 512), "Kodak 768 x 512": (512, 768), "1024 x 1024": (1024, 1024),
                    "2048 x 2048": (2048, 2048)}
+## Codecs cochés par défaut dans « Comparer à » : les références demandées par le cas d'usage.
+REFERENCE_KEYS = ("jpeg", "jpeg2000")
 
 
 # ---------------------------------------------------------------- choix proposés
@@ -47,6 +49,78 @@ def codec_choices(mode, learned_only=False):
         if mode in c.modes and c.available()[0] and (not learned_only or isinstance(c, LearnedCodec)):
             out.append((c.label, c.key))
     return out
+
+
+def model_mode(key):
+    """! @brief Mode d'image d'un modèle appris, déduit de ses canaux d'entrée.
+
+    @param key  Identifiant du codec appris.
+    @return @c "rgb" pour un modèle à 3 canaux, sinon @c "gris".
+    """
+    return "rgb" if get(key).in_ch == 3 else "gris"
+
+
+def model_choices():
+    """! @brief Modèles appris de tous les modes pour un menu, ceux entraînés sur la plateforme d'abord.
+
+    @return Liste de couples (libellé, identifiant).
+    """
+    learned = [c for c in all_codecs() if isinstance(c, LearnedCodec) and c.available()[0]]
+    learned.sort(key=lambda c: getattr(c, "series", None) is None)        # tri stable : l'ordre du registre reste
+    return [(c.label, c.key) for c in learned]
+
+
+def reference_choices(key):
+    """! @brief Codecs auxquels comparer un modèle : ceux de son mode, sauf lui-même.
+
+    @param key  Identifiant du modèle.
+    @return Couple (liste de (libellé, identifiant), identifiants cochés par défaut).
+    """
+    if not key:
+        return [], []
+    choices = [c for c in codec_choices(model_mode(key)) if c[1] != key]
+    return choices, [v for _, v in choices if v in REFERENCE_KEYS]
+
+
+def model_updates(key, level_idx=0):
+    """! @brief Menus qui dépendent du modèle à tester.
+
+    @param key        Identifiant du modèle, ou None.
+    @param level_idx  Indice du niveau à sélectionner.
+    @return Couple de gr.update pour (niveau, « Comparer à »).
+    """
+    choices, checked = reference_choices(key)
+    levels = level_choices(key, model_mode(key)) if key else []
+    return (gr.update(choices=levels, value=level_idx if key else None), gr.update(choices=choices, value=checked))
+
+
+def _find_model(name):
+    """! @brief Codec et indice de niveau du checkpoint de nom @p name, ou None s'il n'est pas enregistré."""
+    for c in all_codecs():
+        if isinstance(c, LearnedCodec):
+            for i, level in enumerate(c.levels(model_mode(c.key))):
+                if Path(str(level.value)).name == name:
+                    return c.key, i
+    return None
+
+
+def open_model(ckpt_path):
+    """! @brief Sélectionne dans l'onglet Tester le modèle issu d'un entraînement.
+
+    Le registre est relu si le checkpoint n'y figure pas encore (entraînement en cours, autre session).
+    @param ckpt_path  Chemin du checkpoint du job, ou None.
+    @return Triplet de gr.update pour (modèle, niveau, « Comparer à »).
+    @throws gr.Error si l'entraînement n'a pas encore produit de modèle.
+    """
+    name = Path(ckpt_path).name if ckpt_path else None
+    found = _find_model(name) if name else None
+    if name and found is None:
+        discover()
+        found = _find_model(name)
+    if found is None:
+        raise gr.Error("Cet entraînement n'a pas encore produit de modèle à tester.")
+    key, level_idx = found
+    return (gr.update(choices=model_choices(), value=key),) + model_updates(key, level_idx)
 
 
 def backend_choices():
@@ -72,7 +146,7 @@ def image_choices(dataset):
 
 
 def codecs_markdown():
-    """! @brief Tableau Markdown de tous les codecs enregistrés (onglet « Codecs et aide »)."""
+    """! @brief Tableau Markdown de tous les codecs enregistrés (section « Aide »)."""
     lines =["| Codec | Famille | Modes | Description |", "| :- | :- | :- | :- |"]
     for c in all_codecs():
         ok, why = c.available()
@@ -132,17 +206,13 @@ def _zoom(img, zx, zy):
 
 def _row(row, res):
     """! @brief Ligne de tableau affichée pour une mesure de bench.evaluate()."""
-    out = {
-        "codec": row["codec_label"], "niveau": row["niveau_label"], "moteur": row["moteur"],
-        "débit": row["débit"], "bpp": row["bpp"], "taux": row["taux"],
-        "PSNR (dB)": row["psnr"], "MS-SSIM": row["ms_ssim"],
+    return {
+        "codec": row["codec_label"], "niveau": row["niveau_label"], "débit": row["débit"], "bpp": row["bpp"],
+        "taux": row["taux"], "PSNR (dB)": row["psnr"], "MS-SSIM": row["ms_ssim"],
         "encodage (ms)": row["t_encodage_ms"], "dont analyse (ms)": row["t_analyse_ms"],
         "décodage (ms)": row["t_decodage_ms"],
+        "détails": ", ".join(f"{k} : {v}" for k, v in res.info.items()),
     }
-    info = {k: v for k, v in res.info.items() if k != "latent"}
-    out["latent"] = res.info.get("latent", "-")
-    out["détails"] = ", ".join(f"{k} : {v}" for k, v in info.items())
-    return out
 
 
 def _round(df, digits=3):
@@ -150,70 +220,62 @@ def _round(df, digits=3):
     return df.round(digits) if not df.empty else df
 
 
-# ---------------------------------------------------------------- onglet Comparer
+# ---------------------------------------------------------------- onglet Tester
 
-def compare(dataset, name, upload, mode, keys, target, backend, real_rate, zx, zy, progress=gr.Progress()):
-    """! @brief Onglet « Comparer » : une image, plusieurs codecs au niveau le plus proche d'un débit visé.
+def run_test(dataset, name, upload, key, level_idx, references, backend, real_rate, zx, zy, progress=gr.Progress()):
+    """! @brief Onglet « Tester » : un modèle sur une image, avec sa carte d'erreur, face à d'autres codecs.
 
-    Un codec en erreur est signalé (gr.Warning) et sauté.
-    @param dataset    Jeu d'images.
-    @param name       Image du jeu.
-    @param upload     Image importée (PIL) ou None.
-    @param mode       @c "gris" ou @c "rgb".
-    @param keys       Identifiants des codecs.
-    @param target     Débit visé, en bpp.
-    @param backend    Moteur de l'encodeur des codecs appris.
-    @param real_rate  Débit réel ou estimé.
-    @param zx         Position horizontale du zoom, en %.
-    @param zy         Position verticale du zoom, en %.
-    @param progress   Barre de progression Gradio.
+    Le mode d'image est celui du modèle. Chaque codec de @p references est pris au niveau le plus proche du débit
+    obtenu par le modèle ; un codec en erreur est signalé (gr.Warning) et sauté.
+    @param dataset     Jeu d'images.
+    @param name        Image du jeu.
+    @param upload      Image importée (PIL) ou None.
+    @param key         Identifiant du modèle.
+    @param level_idx   Indice du niveau du modèle.
+    @param references  Identifiants des codecs auxquels le comparer.
+    @param backend     Moteur de l'encodeur des codecs appris.
+    @param real_rate   Débit réel ou estimé.
+    @param zx          Position horizontale du zoom, en %.
+    @param zy          Position verticale du zoom, en %.
+    @param progress    Barre de progression Gradio.
     @return Triplet (galerie des reconstructions, galerie des zooms, tableau des mesures).
-    @throws gr.Error si aucun codec n'est coché.
+    @throws gr.Error si le modèle, le niveau ou l'image manque, ou si le modèle échoue.
     """
-    if not keys:
-        raise gr.Error("Cochez au moins un codec.")
+    mode = model_mode(key) if key else None
+    codec, level = _selected(key, level_idx, mode)
     img, title = _image(dataset, name, upload, mode)
     H, W = img.shape[:2]
-    gallery = [(Image.fromarray(img), f"Original · {title} · {W}x{H}")]
-    zooms = [(_zoom(img, zx, zy), "Original")]
-    rows = []
-    for i, key in enumerate(keys):
-        codec = get(key)
-        progress(i / len(keys), desc=f"{codec.label} : recherche du niveau")
+    n = 1 + len(references or [])
+    progress(0, desc=f"{codec.label} · {level.label}")
+    try:
+        row, res = bench.evaluate(codec, img, level, mode, backend, real_rate)
+    except Exception as e:
+        raise gr.Error(f"{codec.label} : {e}") from None
+    diff = np.abs(img.astype(np.int16) - res.recon.astype(np.int16))
+    diff = np.clip(diff * 4, 0, 255).astype(np.uint8)            # erreur amplifiée x4
+    gallery = [(Image.fromarray(img), f"Original · {title} · {W}x{H}"),
+               (Image.fromarray(res.recon),
+                f"{codec.label} · {level.label} · {row['bpp']:.3f} bpp · {row['psnr']:.2f} dB"),
+               (Image.fromarray(diff), "Erreur du modèle x 4")]
+    zooms = [(_zoom(img, zx, zy), "Original"), (_zoom(res.recon, zx, zy), f"{codec.label} · {row['bpp']:.3f} bpp")]
+    rows = [_row(row, res)]
+    for i, ref_key in enumerate(references or [], start=1):
         try:
-            level = closest_level(codec, img, mode, target)
-            progress((i + 0.5) / len(keys), desc=f"{codec.label} · {level.label}")
-            row, res = bench.evaluate(codec, img, level, mode, backend, real_rate)
+            ref = get(ref_key)
+            progress(i / n, desc=f"{ref.label} : recherche du niveau")
+            ref_level = closest_level(ref, img, mode, row["bpp"])
+            ref_row, ref_res = bench.evaluate(ref, img, ref_level, mode, backend, real_rate)
         except Exception as e:
-            gr.Warning(f"{codec.label} : {e}")
+            gr.Warning(f"{ref_key} : {e}")
             continue
-        caption = f"{codec.label} · {level.label} · {row['bpp']:.3f} bpp · {row['psnr']:.2f} dB"
-        gallery.append((Image.fromarray(res.recon), caption))
-        zooms.append((_zoom(res.recon, zx, zy), f"{codec.label} · {row['bpp']:.3f} bpp"))
-        rows.append(_row(row, res))
+        gallery.append((Image.fromarray(ref_res.recon),
+                        f"{ref.label} · {ref_level.label} · {ref_row['bpp']:.3f} bpp · {ref_row['psnr']:.2f} dB"))
+        zooms.append((_zoom(ref_res.recon, zx, zy), f"{ref.label} · {ref_row['bpp']:.3f} bpp"))
+        rows.append(_row(ref_row, ref_res))
     return gallery, zooms, _round(pd.DataFrame(rows))
 
 
-# ---------------------------------------------------------------- onglet Explorer
-
-def explore(dataset, name, upload, mode, key, level_idx, backend, real_rate):
-    """! @brief Onglet « Explorer un codec » : un codec à un niveau précis, avec la carte d'erreur.
-
-    Les paramètres sont ceux de compare(), plus le codec (@p key) et l'indice du niveau (@p level_idx).
-    @return Couple (galerie original / reconstruction / erreur x 4, tableau des mesures).
-    """
-    codec, level = _selected(key, level_idx, mode)
-    img, _ = _image(dataset, name, upload, mode)
-    row, res = bench.evaluate(codec, img, level, mode, backend, real_rate)
-    diff = np.abs(img.astype(np.int16) - res.recon.astype(np.int16))
-    diff = (np.clip(diff * 4, 0, 255)).astype(np.uint8)          # erreur amplifiée x4
-    gallery = [(Image.fromarray(img), "Original"),
-               (Image.fromarray(res.recon), f"{level.label} · {row['bpp']:.3f} bpp · {row['psnr']:.2f} dB"),
-               (Image.fromarray(diff), "|erreur| x 4")]
-    return gallery, _round(pd.DataFrame([_row(row, res)]))
-
-
-# ---------------------------------------------------------------- onglet Benchmark
+# ---------------------------------------------------------------- onglet Valider
 
 def image_count_slider(n):
     """! @brief Bornes du curseur « Nombre d'images » pour un jeu de @p n images.
@@ -228,7 +290,7 @@ def image_count_slider(n):
 
 def run_benchmark(dataset, n_images, mode, keys, points, backend, real_rate, name, ref, metric,
                   progress=gr.Progress()):
-    """! @brief Onglet « Benchmark » : lance une campagne, l'enregistre et l'affiche.
+    """! @brief Onglet « Valider » : lance une campagne, l'enregistre et l'affiche.
 
     @param dataset    Jeu d'images.
     @param n_images   Nombre d'images du jeu à utiliser.
@@ -256,8 +318,7 @@ def run_benchmark(dataset, n_images, mode, keys, points, backend, real_rate, nam
         status = "Aucune mesure réussie : rien n'a été enregistré."
         selected = []
     else:
-        status = (f"Campagne **{path.stem}** : {len(df)} mesures en {time.time() - t0:.0f} s, "
-                  f"enregistrée dans `{path}`.")
+        status = f"Campagne **{path.stem}** : {len(df)} mesures en {time.time() - t0:.0f} s."
         selected = [path.stem]
     if errors:
         status += f"\n\nErreurs ({len(errors)}) :\n" + "\n".join(f"- {e}" for e in errors[:10])
@@ -287,7 +348,7 @@ def show_runs(names, ref, metric):
             str(bench.BENCH_DIR / f"{names[0]}.csv") if names and len(names) == 1 else None)
 
 
-# ---------------------------------------------------------------- onglet Encodeur embarqué
+# ---------------------------------------------------------------- coût sur la carte (onglet Valider)
 
 def _input_shape(codec, preset):
     """! @brief Forme d'entrée (1, C, H, W) de l'encodeur d'un codec appris pour une taille prédéfinie."""
@@ -295,17 +356,16 @@ def _input_shape(codec, preset):
     return 1, codec.in_ch, H, W
 
 
-def profile(key, level_idx, preset, mode):
-    """! @brief Onglet « Encodeur embarqué » : profil couche par couche de la partie embarquée.
+def profile(key, level_idx, preset):
+    """! @brief Profil couche par couche de la partie embarquée d'un modèle.
 
     Calculé sur l'architecture non entraînée : aucun téléchargement de poids.
     @param key        Identifiant du codec appris.
     @param level_idx  Indice du niveau.
     @param preset     Clé de PROFILE_PRESETS.
-    @param mode       @c "gris" ou @c "rgb".
     @return Triplet (résumé Markdown, tableau des couches, figure de répartition des MAC).
     """
-    codec, level = _selected(key, level_idx, mode)
+    codec, level = _selected(key, level_idx, model_mode(key) if key else None)
     shape = _input_shape(codec, preset)
     df = profiling.profile_module(codec.onboard_module(codec.make_model(level)), shape)
     s = profiling.summarize(df)
@@ -358,7 +418,7 @@ def compare_encoders(preset, mode):
     return _round(df, 2)
 
 
-def check_backends(key, level_idx, preset, mode, progress=gr.Progress()):
+def check_backends(key, level_idx, preset, progress=gr.Progress()):
     """! @brief Exécute l'encodeur entraîné sur chaque moteur et compare les sorties à PyTorch.
 
     Entrée aléatoire (graine fixe) ; le premier passage (export ONNX, compilation) est chronométré
@@ -366,12 +426,11 @@ def check_backends(key, level_idx, preset, mode, progress=gr.Progress()):
     @param key        Identifiant du codec appris.
     @param level_idx  Indice du niveau.
     @param preset     Clé de PROFILE_PRESETS.
-    @param mode       @c "gris" ou @c "rgb".
     @param progress   Barre de progression Gradio.
     @return Tableau : moteur, temps de préparation, temps d'un passage, écart max et % de latents
             arrondis identiques à PyTorch.
     """
-    codec, level = _selected(key, level_idx, mode)
+    codec, level = _selected(key, level_idx, model_mode(key) if key else None)
     enc = codec.encoder(level)
     x = np.random.default_rng(0).random(_input_shape(codec, preset), dtype=np.float32)
     ref = None
@@ -399,17 +458,16 @@ def check_backends(key, level_idx, preset, mode, progress=gr.Progress()):
 # ---------------------------------------------------------------- liens entre onglets
 
 def mode_updates(m):
-    """! @brief Mises à jour des menus de codecs quand le mode change.
+    """! @brief Mises à jour des menus de codecs.
 
-    @param m  @c "gris" ou @c "rgb".
-    @return Tuple de gr.update pour (keys, ex_codec, ex_level, b_keys, p_codec, p_level).
+    Les menus de modèles couvrent tous les modes : seule leur liste change, la sélection de la session reste.
+    @param m  @c "gris" ou @c "rgb", mode de l'onglet Valider.
+    @return Tuple de gr.update pour (modèle à tester, codecs de la campagne, modèle du coût sur la carte).
     """
-    all_keys = codec_choices(m)
-    learned = codec_choices(m, learned_only=True)
-    return (gr.update(choices=all_keys, value=[v for _, v in all_keys]),
-            gr.update(choices=all_keys, value=None), gr.update(choices=[], value=None),
-            gr.update(choices=all_keys, value=[v for _, v in all_keys]),
-            gr.update(choices=learned, value=None), gr.update(choices=[], value=None))
+    keys = codec_choices(m)
+    models = model_choices()
+    return (gr.update(choices=models), gr.update(choices=keys, value=[v for _, v in keys]),
+            gr.update(choices=models))
 
 
 def codec_menus(m):
@@ -425,7 +483,7 @@ def reload_codecs(m):
     """! @brief Redécouvre les codecs (bouton « Recharger les codecs », ou fin d'un entraînement).
 
     @param m  Mode courant.
-    @return Les mises à jour de mode_updates(), puis le tableau des codecs (onglet « Codecs et aide »).
+    @return Les mises à jour de mode_updates(), puis le tableau des codecs (section « Aide »).
     """
     discover()
     backends.clear_runners()
@@ -485,7 +543,7 @@ def check_exposure(host, users, bind, in_docker):
 
 # ---------------------------------------------------------------- interface
 
-## Texte de l'onglet « Codecs et aide » (Markdown).
+## Texte de la section « Aide » (Markdown).
 HELP = """
 ### Mesures
 - **bpp** : bits par pixel du flux compressé. **Réel** : taille du fichier produit par le codeur arithmétique
@@ -528,7 +586,7 @@ Les nouveaux modèles Ballé 2017 entraînés par le notebook (`outputs/checkpoi
 python -m aidge_in_space.bench --list
 python -m aidge_in_space.bench --codecs jpeg,jpeg2000,bmshj2018-hyperprior --images 24 --mode rgb --points 6
 ```
-Les campagnes sont écrites dans `outputs/bench/*.csv` (jamais écrasées) et relues par l'onglet Benchmark.
+Les campagnes sont écrites dans `outputs/bench/*.csv` (jamais écrasées) et relues par l'onglet Valider.
 """.replace("{MS_SSIM_MIN_SIDE}", str(MS_SSIM_MIN_SIDE))
 
 
@@ -541,129 +599,122 @@ def build():
     ds0 = ds[0] if ds else None
     imgs0 = image_choices(ds0)
     bk = backend_choices()
+    models = model_choices()
+    model0 = models[0][1] if models else None
+    refs0, checked0 = reference_choices(model0)
 
-    with gr.Blocks(title="AIDGE IN SPACE · banc d'essai") as demo:
-        gr.Markdown("# AIDGE IN SPACE · banc d'essai de compression d'image\n"
-                    "Comparer des algorithmes et des modèles de compression pour choisir ce qui ira sur la carte.")
-
-        with gr.Row():
-            mode = gr.Radio(MODE_CHOICES, value="gris", label="Mode", scale=1)
-            backend = gr.Dropdown(bk, value="torch", label="Moteur de l'encodeur (codecs appris)", scale=1)
-            real_rate = gr.Checkbox(value=True, label="Débit réel (codeur arithmétique, plus lent)", scale=1)
-            reload_btn = gr.Button("Recharger les codecs", scale=0)
+    with gr.Blocks(title="AIDGE IN SPACE") as demo:
+        gr.Markdown("# AIDGE IN SPACE · entraîner et valider un modèle de compression\n"
+                    "**1.** Lancez un entraînement, **2.** suivez-le, **3.** testez le modèle sur une image, "
+                    "**4.** validez-le sur un jeu d'images face à JPEG.")
 
         with gr.Tabs() as tabs:
-            # ------------------------------------------------ Comparer
-            with gr.Tab("Comparer"):
+            # ------------------------------------------------ Entraîner, Suivre
+            connect = ui_training.build_tabs(tabs=tabs)
+
+            # ------------------------------------------------ Tester
+            with gr.Tab("3. Tester", id="tester"):
                 with gr.Row():
                     with gr.Column(scale=1, min_width=280):
+                        t_model = gr.Dropdown(models, value=model0, label="Modèle à tester")
+                        t_level = gr.Dropdown(level_choices(model0, model_mode(model0)) if model0 else [],
+                                              value=0 if model0 else None, label="Niveau de compression",
+                                              allow_custom_value=True)
+                        t_refs = gr.CheckboxGroup(refs0, value=checked0, label="Comparer à",
+                                                  info="Au débit le plus proche de celui du modèle.")
                         dataset = gr.Dropdown(ds, value=ds0, label="Jeu d'images")
                         image_name = gr.Dropdown(imgs0, value=imgs0[0] if imgs0 else None, label="Image")
                         upload = gr.Image(type="pil", label="… ou importer une image", sources=["upload", "clipboard"],
-                                          height=160)
-                        keys = gr.CheckboxGroup(codec_choices("gris"), value=[v for _, v in codec_choices("gris")],
-                                                label="Codecs")
-                        target = gr.Slider(0.05, 2.0, value=0.25, step=0.01, label="Débit visé (bpp)")
-                        with gr.Row():
-                            zx = gr.Slider(0, 100, value=50, step=1, label="Zoom : position x (%)")
-                            zy = gr.Slider(0, 100, value=50, step=1, label="Zoom : position y (%)")
-                        go = gr.Button("Comparer", variant="primary")
+                                          height=120)
+                        t_go = gr.Button("Tester", variant="primary")
+                        with gr.Accordion("Options", open=False):
+                            with gr.Row():
+                                zx = gr.Slider(0, 100, value=50, step=1, label="Zoom : position x (%)")
+                                zy = gr.Slider(0, 100, value=50, step=1, label="Zoom : position y (%)")
+                            t_backend = gr.Dropdown(bk, value="torch", label="Moteur de l'encodeur")
+                            t_real = gr.Checkbox(value=True, label="Débit réel (codeur arithmétique, plus lent)")
                     with gr.Column(scale=3):
-                        gallery = gr.Gallery(label="Reconstructions (niveau le plus proche du débit visé)",
-                                             columns=3, height=520, object_fit="contain")
+                        gallery = gr.Gallery(label="Original, modèle, erreur et comparaisons", columns=3, height=520,
+                                             object_fit="contain")
                         zoom = gr.Gallery(label=f"Zoom x{ZOOM_FACTOR}", columns=6, height=230, object_fit="contain")
                         table = gr.Dataframe(label="Mesures", wrap=True)
-                go.click(compare, [dataset, image_name, upload, mode, keys, target, backend, real_rate, zx, zy],
-                         [gallery, zoom, table], api_name="compare")
+                t_model.input(model_updates, t_model, [t_level, t_refs])
+                t_go.click(run_test, [dataset, image_name, upload, t_model, t_level, t_refs, t_backend, t_real, zx, zy],
+                           [gallery, zoom, table], api_name="test_model")
 
-            # ------------------------------------------------ Explorer
-            with gr.Tab("Explorer un codec"):
+            # ------------------------------------------------ Valider
+            with gr.Tab("4. Valider", id="valider"):
                 with gr.Row():
                     with gr.Column(scale=1, min_width=280):
-                        ex_codec = gr.Dropdown(codec_choices("gris"), label="Codec")
-                        ex_level = gr.Dropdown([], label="Niveau", allow_custom_value=True)
-                        ex_go = gr.Button("Compresser", variant="primary")
-                        gr.Markdown("L'image est celle choisie dans l'onglet Comparer.")
-                    with gr.Column(scale=3):
-                        ex_gallery = gr.Gallery(columns=3, height=420, object_fit="contain", label="Résultat")
-                        ex_table = gr.Dataframe(label="Mesures", wrap=True)
-                ex_codec.change(lambda k, m: gr.update(choices=level_choices(k, m), value=0 if k else None),
-                                [ex_codec, mode], ex_level)
-                ex_go.click(explore, [dataset, image_name, upload, mode, ex_codec, ex_level, backend, real_rate],
-                            [ex_gallery, ex_table], api_name="explore")
-
-            # ------------------------------------------------ Benchmark
-            with gr.Tab("Benchmark"):
-                with gr.Row():
-                    with gr.Column(scale=1, min_width=280):
+                        mode = gr.Radio(MODE_CHOICES, value="gris", label="Mode")
+                        b_keys = gr.CheckboxGroup(codec_choices("gris"), value=[v for _, v in codec_choices("gris")],
+                                                  label="Modèles et références")
                         b_dataset = gr.Dropdown(ds, value=ds0, label="Jeu d'images")
                         b_n = gr.Slider(1, step=1, label="Nombre d'images", **image_count_slider(len(imgs0)))
-                        b_keys = gr.CheckboxGroup(codec_choices("gris"), value=[v for _, v in codec_choices("gris")],
-                                                  label="Codecs")
-                        b_points = gr.Slider(2, 12, value=6, step=1, label="Points par courbe")
-                        b_name = gr.Textbox(label="Nom de la campagne (facultatif)")
                         b_go = gr.Button("Lancer la campagne", variant="primary")
                         b_status = gr.Markdown()
-                        gr.Markdown("Débit estimé conseillé pour les grosses campagnes : décochez « Débit réel ».")
+                        with gr.Accordion("Options", open=False):
+                            b_points = gr.Slider(2, 12, value=6, step=1, label="Points par courbe")
+                            b_name = gr.Textbox(label="Nom de la campagne (facultatif)")
+                            b_backend = gr.Dropdown(bk, value="torch", label="Moteur de l'encodeur")
+                            b_real = gr.Checkbox(value=True, label="Débit réel (codeur arithmétique, plus lent)",
+                                                 info="Décochez pour accélérer une grosse campagne.")
                     with gr.Column(scale=3):
-                        with gr.Row():
-                            runs = gr.Dropdown(bench.list_runs(), multiselect=True, label="Campagnes affichées")
-                            ref = gr.Dropdown([], label="Référence du BD-rate")
-                            metric = gr.Radio([("PSNR", "psnr"), ("MS-SSIM (dB)", "ms_ssim_db")], value="psnr",
-                                              label="BD-rate sur")
+                        runs = gr.Dropdown(bench.list_runs(), multiselect=True, label="Campagnes affichées")
                         with gr.Row():
                             fig_psnr = gr.Plot(label="PSNR")
                             fig_ssim = gr.Plot(label="MS-SSIM")
                         bd = gr.Dataframe(label="BD-rate (négatif = moins de bits que la référence à qualité égale)")
-                        fig_time = gr.Plot(label="Temps d'encodage")
-                        agg_table = gr.Dataframe(label="Points des courbes (moyennes sur les images)")
-                        csv_file = gr.File(label="CSV de la campagne")
+                        with gr.Accordion("Détails de la campagne", open=False):
+                            with gr.Row():
+                                ref = gr.Dropdown([], label="Référence du BD-rate")
+                                metric = gr.Radio([("PSNR", "psnr"), ("MS-SSIM (dB)", "ms_ssim_db")], value="psnr",
+                                                  label="BD-rate sur")
+                            fig_time = gr.Plot(label="Temps d'encodage")
+                            agg_table = gr.Dataframe(label="Points des courbes (moyennes sur les images)")
+                            csv_file = gr.File(label="CSV de la campagne")
                 b_dataset.change(lambda d: gr.update(**image_count_slider(len(image_choices(d)))), b_dataset, b_n)
                 show_outputs = [fig_psnr, fig_ssim, fig_time, bd, agg_table, ref, csv_file]
-                b_go.click(run_benchmark, [b_dataset, b_n, mode, b_keys, b_points, backend, real_rate, b_name, ref,
+                b_go.click(run_benchmark, [b_dataset, b_n, mode, b_keys, b_points, b_backend, b_real, b_name, ref,
                                            metric], [b_status, runs] + show_outputs, api_name="benchmark")
                 for comp in (runs, ref, metric):      # .input : seulement les actions de l'utilisateur
                     comp.input(show_runs, [runs, ref, metric], show_outputs)
 
-            # ------------------------------------------------ Encodeur embarqué
-            with gr.Tab("Encodeur embarqué"):
-                gr.Markdown("Coût de la partie qui tourne **à bord** (transformée d'analyse, et pour l'hyperprior "
-                            "h_a + h_s), calculé sur l'architecture : aucun poids n'est nécessaire.")
-                with gr.Row():
-                    p_codec = gr.Dropdown(codec_choices("gris", learned_only=True), label="Codec appris")
-                    p_level = gr.Dropdown([], label="Niveau", allow_custom_value=True)
-                    p_size = gr.Dropdown(list(PROFILE_PRESETS), value="512 x 512", label="Taille de l'image")
-                with gr.Row():
-                    p_go = gr.Button("Profiler couche par couche", variant="primary")
-                    p_all = gr.Button("Comparer tous les encodeurs")
-                    p_check = gr.Button("Vérifier les moteurs (PyTorch / ONNX Runtime / Aidge)")
-                p_md = gr.Markdown()
-                p_fig = gr.Plot(label="Répartition du calcul")
-                p_table = gr.Dataframe(label="Couches", wrap=True)
-                p_check_table = gr.Dataframe(label="Moteurs : mêmes latents ? (entrée aléatoire, 1 thread)")
-                p_codec.change(lambda k, m: gr.update(choices=level_choices(k, m), value=0 if k else None),
-                               [p_codec, mode], p_level)
-                p_go.click(profile, [p_codec, p_level, p_size, mode], [p_md, p_table, p_fig], api_name="profile")
+                with gr.Accordion("Coût sur la carte : calcul et mémoire de l'encodeur", open=False):
+                    gr.Markdown("Coût de la partie qui tourne **à bord** (transformée d'analyse, et pour l'hyperprior "
+                                "h_a + h_s), calculé sur l'architecture : aucun poids n'est nécessaire.")
+                    with gr.Row():
+                        p_codec = gr.Dropdown(models, value=model0, label="Modèle")
+                        p_level = gr.Dropdown(level_choices(model0, model_mode(model0)) if model0 else [],
+                                              value=0 if model0 else None, label="Niveau", allow_custom_value=True)
+                        p_size = gr.Dropdown(list(PROFILE_PRESETS), value="512 x 512", label="Taille de l'image")
+                    with gr.Row():
+                        p_go = gr.Button("Profiler couche par couche", variant="primary")
+                        p_all = gr.Button("Comparer tous les encodeurs")
+                        p_check = gr.Button("Vérifier les moteurs (PyTorch / ONNX Runtime / Aidge)")
+                    p_md = gr.Markdown()
+                    p_fig = gr.Plot(label="Répartition du calcul")
+                    p_table = gr.Dataframe(label="Couches", wrap=True)
+                    p_check_table = gr.Dataframe(label="Moteurs : mêmes latents ? (entrée aléatoire, 1 thread)")
+                p_codec.input(lambda k: model_updates(k)[0], p_codec, p_level)
+                p_go.click(profile, [p_codec, p_level, p_size], [p_md, p_table, p_fig], api_name="profile")
                 p_all.click(compare_encoders, [p_size, mode], p_table, api_name="compare_encoders")
-                p_check.click(check_backends, [p_codec, p_level, p_size, mode], p_check_table,
-                              api_name="check_backends")
+                p_check.click(check_backends, [p_codec, p_level, p_size], p_check_table, api_name="check_backends")
 
-            # ------------------------------------------------ Aide
-            with gr.Tab("Codecs et aide"):
-                codecs_md = gr.Markdown(codecs_markdown())
-                gr.Markdown(HELP)
-
-            # ------------------------------------------------ Données, Entraînement, Suivi
-            mode_outputs = [keys, ex_codec, ex_level, b_keys, p_codec, p_level]
-            ui_training.build_tabs(mode, mode_outputs + [codecs_md], reload_codecs, tabs=tabs,
-                                  menus_fn=codec_menus)
+        # ------------------------------------------------ Aide
+        with gr.Accordion("Aide : mesures, codecs disponibles, ajout d'un algorithme", open=False):
+            codecs_md = gr.Markdown(codecs_markdown())
+            reload_btn = gr.Button("Recharger les codecs")
+            gr.Markdown(HELP)
 
         # ------------------------------------------------ liens entre onglets
         dataset.change(lambda d: gr.update(choices=image_choices(d), value=(image_choices(d) or [None])[0]),
                        dataset, image_name)
-
-        mode.change(mode_updates, mode, mode_outputs)
-        reload_btn.click(reload_codecs, mode, mode_outputs + [codecs_md])
+        mode.input(lambda m: mode_updates(m)[1], mode, b_keys)
+        menus = [t_model, b_keys, p_codec, codecs_md]
+        reload_btn.click(reload_codecs, mode, menus)
+        connect(mode, menus, reload_codecs, menus_fn=codec_menus, open_model_fn=open_model,
+                open_model_outputs=[t_model, t_level, t_refs])
     return demo
 
 
@@ -693,7 +744,8 @@ def main(argv=None):
     download_kodak()
     discover()
     build().queue().launch(server_name=host, server_port=args.port, inbrowser=args.inbrowser,
-                           auth=users or None, max_file_size=f"{upload_mb}mb", theme=gr.themes.Soft())
+                           auth=users or None, max_file_size=f"{upload_mb}mb", theme=gr.themes.Soft(),
+                           allowed_paths=[str(config.CKPT_DIR)])
 
 
 if __name__ == "__main__":

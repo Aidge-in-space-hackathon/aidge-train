@@ -78,7 +78,7 @@ Ces dossiers sont créés à l'usage et ignorés par Git.
 
 | Dossier | Contenu |
 | :- | :- |
-| `data/train/<jeu>/` | jeux d'images d'entraînement, téléchargés ou déposés depuis l'onglet Données, ou copiés à la main |
+| `data/train/<jeu>/` | jeux d'images d'entraînement, téléchargés ou déposés depuis l'onglet 1. Entraîner, ou copiés à la main |
 | `data/kodak/` | les 24 images de test Kodak, téléchargées au premier entraînement |
 | `outputs/checkpoints/` | modèles entraînés, détectés automatiquement par le banc d'essai |
 | `outputs/bench/` | résultats des campagnes (CSV) |
@@ -87,13 +87,14 @@ Ces dossiers sont créés à l'usage et ignorés par Git.
 
 ## Banc d'essai de compression
 
-| Onglet | Rôle |
+Il occupe les onglets **3. Tester** et **4. Valider** de l'interface :
+
+| Où | Rôle |
 | :- | :- |
-| Comparer | une image, plusieurs codecs au même débit visé : reconstructions, zoom, débit, PSNR, MS-SSIM, temps |
-| Explorer un codec | un codec à un niveau donné, avec la carte d'erreur |
-| Benchmark | campagnes sur un jeu d'images : courbes débit/distorsion, BD-rate, temps d'encodage, export CSV |
-| Encodeur embarqué | calcul, paramètres et mémoire de la partie embarquée, couche par couche ; vérification PyTorch, ONNX Runtime et Aidge |
-| Codecs et aide | description des codecs et ajout d'un algorithme |
+| 3. Tester | un modèle à un niveau donné sur une image, avec la carte d'erreur et le zoom, face aux codecs cochés au même débit |
+| 4. Valider | campagnes sur un jeu d'images : courbes débit/distorsion, BD-rate, temps d'encodage, export CSV |
+| 4. Valider, section « Coût sur la carte » | calcul, paramètres et mémoire de la partie embarquée, couche par couche ; vérification PyTorch, ONNX Runtime et Aidge |
+| Section « Aide », en bas de page | description des codecs et ajout d'un algorithme |
 
 **Codecs disponibles**
 
@@ -122,13 +123,12 @@ Tout module de [`aidge_in_space/codecs/`](aidge_in_space/codecs) qui définit un
 
 ## Plateforme d'entraînement
 
-Trois onglets complètent le banc d'essai :
+Deux onglets ouvrent le parcours :
 
-- **Données** : télécharger un jeu prêt à l'emploi (vues aériennes, sol martien, terrain lunaire analogue, animaux, photos variées) ou déposer des images et des archives zip ;
-- **Entraînement** : partir d'un préréglage ou régler les hyperparamètres, en niveaux de gris ou en couleur, avec un job par valeur de λ ;
-- **Suivi** : statuts, courbes, annulation et relance, avec reprise depuis le dernier checkpoint.
+- **1. Entraîner** : partir d'un préréglage ou régler les hyperparamètres, en niveaux de gris ou en couleur, avec un job par valeur de λ. La section « Ajouter des images » télécharge un jeu prêt à l'emploi (vues aériennes, sol martien, terrain lunaire analogue, animaux, photos variées) ou reçoit des images et des archives zip ;
+- **2. Suivre** : statuts, courbes, annulation et relance, avec reprise depuis le dernier checkpoint. Le bouton « Tester ce modèle » ouvre l'onglet 3 sur le modèle choisi.
 
-Les modèles terminés apparaissent dans le banc d'essai, à côté des codecs classiques. Le mode d'emploi pas à pas est dans le [guide de l'interface](docs/guide_interface.md).
+Les modèles terminés apparaissent dans les onglets 3. Tester et 4. Valider, à côté des codecs classiques. Le mode d'emploi pas à pas est dans le [guide de l'interface](docs/guide_interface.md).
 
 Un entraînement peut aussi se lancer sans file d'attente, à partir d'un fichier YAML contenant les champs de `TrainConfig` ([`aidge_in_space/training/config.py`](aidge_in_space/training/config.py)) :
 
@@ -157,7 +157,7 @@ flowchart LR
 | Module | Rôle |
 | :- | :- |
 | `aidge_in_space/app.py` | interface Gradio |
-| `aidge_in_space/ui_training.py` | onglets Données, Entraînement et Suivi |
+| `aidge_in_space/ui_training.py` | onglets 1. Entraîner et 2. Suivre |
 | `aidge_in_space/dataset_catalog.py` | catalogue des jeux d'images téléchargeables |
 | `aidge_in_space/jobs.py` | file d'attente SQLite : jobs, métriques, workers |
 | `aidge_in_space/worker.py` | prise en charge des jobs et lancement des entraînements |
@@ -182,7 +182,7 @@ Sous Docker, ces valeurs se placent dans l'environnement ou dans un fichier `.en
 
 ## Contribuer
 
-`main` n'évolue que par pull request, avec une CI au vert : tests, fichiers compose, construction de l'image et démarrage de l'application et du worker. Dependabot propose chaque semaine les mises à jour de dépendances, soumises à la même CI.
+`main` n'évolue que par pull request, avec une CI au vert : tests, fichiers compose, construction de l'image et démarrage de l'application et du worker. Dependabot propose chaque semaine les mises à jour de dépendances, soumises à la même CI : les mineures (pip, GitHub Actions) sont fusionnées automatiquement si elle réussit, les majeures et l'image Docker restent à valider à la main.
 
 ```bash
 python -m pytest tests                  # tous les tests
@@ -233,4 +233,4 @@ La feuille de route complète figure dans le [cahier des charges](docs/cahier_de
 
 ## Licence
 
-Ce dépôt ne contient pas encore de fichier de licence.
+Le code de ce dépôt est distribué sous licence MIT : voir le fichier [`LICENSE`](LICENSE). Elle ne couvre pas les jeux d'images ni les poids pré-entraînés téléchargés à l'usage, qui gardent la licence de leur source.

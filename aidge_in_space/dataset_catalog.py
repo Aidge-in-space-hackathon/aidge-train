@@ -1,4 +1,4 @@
-"""! @brief Catalogue de jeux d'images publics, téléchargeables depuis l'onglet Données.
+"""! @brief Catalogue de jeux d'images publics, téléchargeables depuis l'onglet Entraîner.
 
 Chaque archive est identifiée par son empreinte SHA-256 : un fichier modifié à la source est refusé au lieu d'être
 installé. Les images ne sont pas redistribuées par ce dépôt : chaque jeu garde la licence de sa source.
