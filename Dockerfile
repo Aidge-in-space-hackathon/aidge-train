@@ -2,7 +2,7 @@
 # Plateforme (app + worker, image CUDA aidge-in-space:gpu) : docker compose up --build   puis http://localhost:7860
 # PC sans carte NVIDIA : utiliser le venv (scripts/setup_venv.ps1), le worker de docker-compose.yml réserve le GPU
 # Serveur : images publiées par la CI sur GHCR, voir docs/deploiement.md
-FROM python:3.11-slim
+FROM python:3.15-slim
 
 # Index PyTorch : version CPU par défaut du Dockerfile (image ~4 fois plus légère que la version CUDA).
 # docker-compose.yml le fixe à https://download.pytorch.org/whl/cu126 (image CUDA) pour la plateforme ;
