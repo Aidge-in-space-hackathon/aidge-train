@@ -9,7 +9,8 @@ pandas>=3.1.0
 pyyaml>=6.0.3
 
 # Images et figures (Pillow inclut JPEG 2000 via OpenJPEG)
-pillow>=13.0.0
+# gradio 6.31 exige pillow<13 : à relever quand gradio l'accepte
+pillow>=10.0
 matplotlib>=3.11.2
 
 # Export et vérification ONNX (entrée d'Aidge)

@@ -17,6 +17,9 @@ updates:
     ignore:
       - dependency-name: numpy
         versions: [">=2.5"]
+      # gradio 6.31 exige pillow<13 : à retirer quand gradio l'accepte
+      - dependency-name: pillow
+        versions: [">=13"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
