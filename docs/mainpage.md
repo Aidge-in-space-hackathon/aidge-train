@@ -34,6 +34,7 @@ Le contexte du projet et l'installation sont décrits dans le README du dépôt.
 | `aidge_in_space.bench` | Campagnes de mesures (CSV dans `outputs/bench`), agrégation, figures |
 | `aidge_in_space.app` | Interface Gradio |
 | `aidge_in_space.ui_training` | Onglets Données, Entraînement et Suivi : fonctions pures (jeux d'images, jobs, courbes) et adaptateurs Gradio |
+| `aidge_in_space.dataset_catalog` | Catalogue des jeux d'images téléchargeables : adresses, empreintes, licences |
 | `aidge_in_space.jobs` | `JobStore`, la file d'attente SQLite : jobs, métriques, battements de cœur des workers, statuts |
 | `aidge_in_space.worker` | Prend les jobs un par un et lance chacun dans un sous-processus `train` |
 | `aidge_in_space.train` | Ligne de commande d'entraînement (`--config` ou `--job-id`) et codes de retour |

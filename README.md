@@ -78,7 +78,7 @@ Ces dossiers sont créés à l'usage et ignorés par Git.
 
 | Dossier | Contenu |
 | :- | :- |
-| `data/train/<jeu>/` | jeux d'images d'entraînement, déposés depuis l'onglet Données ou copiés à la main |
+| `data/train/<jeu>/` | jeux d'images d'entraînement, téléchargés ou déposés depuis l'onglet Données, ou copiés à la main |
 | `data/kodak/` | les 24 images de test Kodak, téléchargées au premier entraînement |
 | `outputs/checkpoints/` | modèles entraînés, détectés automatiquement par le banc d'essai |
 | `outputs/bench/` | résultats des campagnes (CSV) |
@@ -124,7 +124,7 @@ Tout module de [`aidge_in_space/codecs/`](aidge_in_space/codecs) qui définit un
 
 Trois onglets complètent le banc d'essai :
 
-- **Données** : déposer des images ou une archive zip ;
+- **Données** : télécharger un jeu prêt à l'emploi (vues aériennes, sol martien, terrain lunaire analogue, animaux, photos variées) ou déposer des images et des archives zip ;
 - **Entraînement** : partir d'un préréglage ou régler les hyperparamètres, en niveaux de gris ou en couleur, avec un job par valeur de λ ;
 - **Suivi** : statuts, courbes, annulation et relance, avec reprise depuis le dernier checkpoint.
 
@@ -158,6 +158,7 @@ flowchart LR
 | :- | :- |
 | `aidge_in_space/app.py` | interface Gradio |
 | `aidge_in_space/ui_training.py` | onglets Données, Entraînement et Suivi |
+| `aidge_in_space/dataset_catalog.py` | catalogue des jeux d'images téléchargeables |
 | `aidge_in_space/jobs.py` | file d'attente SQLite : jobs, métriques, workers |
 | `aidge_in_space/worker.py` | prise en charge des jobs et lancement des entraînements |
 | `aidge_in_space/train.py`, `training/` | ligne de commande, boucle d'entraînement, checkpoints, reprise, préréglages |

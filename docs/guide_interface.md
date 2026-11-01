@@ -49,6 +49,27 @@ Par défaut, l'interface n'est accessible que depuis votre propre ordinateur et 
 
 Les images servent d'exemples au modèle pour apprendre à compresser. Plus elles ressemblent à ce que le rover verra, meilleur sera le modèle.
 
+### Télécharger un jeu prêt à l'emploi
+
+Pas d'images sous la main ? Ouvrez l'onglet **Données**, choisissez un jeu dans « Jeu à télécharger » puis cliquez sur **Télécharger**. Il apparaît ensuite dans le tableau et dans le menu de l'onglet Entraînement.
+
+| Jeu | Contenu | Images | Téléchargement | Licence |
+| :- | :- | -: | -: | :- |
+| `uc-merced` | vues aériennes proches d'images satellite, 256 px | 2 100 | 332 Mo | usage recherche, citer Yang et Newsam (2010) |
+| `mars-curiosity` | sol martien vu par le rover Curiosity, environ 256 px | 6 737 | 61 Mo | CC BY-SA 4.0 |
+| `lune-analogue-dfki` | terrain d'essai qui imite le sol lunaire (pas de vraies images de la Lune), 640 px | 3 198 | 72 Mo | CC BY 4.0 |
+| `imagewoof` | chiens de 10 races, 320 px sur le petit côté | 12 954 | 328 Mo | conditions d'ImageNet : recherche non commerciale |
+| `div2k-valid` | photos variées en haute définition, environ 2040 px | 100 | 449 Mo | recherche académique uniquement |
+
+Ce qu'il faut savoir :
+
+- **Durée** : de quelques minutes à plus selon la connexion. La barre de progression indique l'étape en cours. Un seul téléchargement se fait à la fois : les suivants attendent leur tour.
+- **Déjà présent** : si le dossier du jeu contient déjà des images, rien n'est téléchargé.
+- **`mars-curiosity`** : la plupart des images font moins de 256 px. Réglez la « Taille des morceaux » sur 128 pour ne pas les agrandir.
+- **Vérification** : chaque archive est comparée à une empreinte enregistrée. Si la source change son fichier, le téléchargement est refusé avec un message, et le catalogue devra être mis à jour (`aidge_in_space/dataset_catalog.py`).
+
+### Déposer vos propres images
+
 1. Ouvrez l'onglet **Données**.
 2. Donnez un **Nom du jeu**, court, par exemple `lune-lro`. Si ce jeu existe déjà, vos images y sont ajoutées. Aucun fichier existant n'est remplacé : en cas de doublon, le nouveau fichier reçoit un suffixe `_2`.
 3. Glissez vos fichiers dans « Images ou archive zip », ou cliquez pour les choisir.

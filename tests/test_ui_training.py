@@ -3,8 +3,13 @@
 Aucun Gradio lancé : on teste les fonctions pures et la construction de l'interface. Contrat :
 docs/conception_entrainement.md (§ 2.7 et 2.8). Dossiers temporaires uniquement.
 """
+import dataclasses
+import hashlib
 import io
+import re
+import tarfile
 import time
+import types
 import zipfile
 
 import matplotlib
@@ -16,6 +21,7 @@ matplotlib.use("Agg")
 ui = pytest.importorskip("aidge_in_space.ui_training")
 
 from aidge_in_space import config   # noqa: E402
+from aidge_in_space.dataset_catalog import CATALOG, CatalogEntry   # noqa: E402
 from aidge_in_space.jobs import JobStore   # noqa: E402
 from aidge_in_space.training import TrainConfig   # noqa: E402
 
@@ -749,3 +755,137 @@ def test_curseur_nombre_d_images_jamais_degenere():
     assert image_count_slider(0) == {"maximum": 2, "value": 1}
     assert image_count_slider(1) == {"maximum": 2, "value": 1}
     assert image_count_slider(24) == {"maximum": 24, "value": 4}
+
+
+# --- catalogue de jeux téléchargeables ------------------------------------------------------
+
+def fake_entry(tmp_path, archive, key="jeu-test", n_images=2):
+    """Entrée de catalogue qui pointe sur un fichier local : aucun accès réseau."""
+    data = archive.read_bytes()
+    return CatalogEntry(key=key, label="Jeu de test", description="d", license="l", source="s", url=archive.as_uri(),
+                        sha256=hashlib.sha256(data).hexdigest(), size_bytes=len(data), unpacked_mb=1,
+                        n_images=n_images)
+
+
+def make_tar(path, members):
+    with tarfile.open(path, "w:gz") as t:
+        for name, data in members.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            t.addfile(info, io.BytesIO(data))
+    return path
+
+
+def test_catalogue_coherent():
+    assert len(CATALOG) >= 4
+    for key, e in CATALOG.items():
+        assert key == e.key == ui.safe_name(key)
+        assert e.url.startswith("https://")
+        assert re.fullmatch(r"[0-9a-f]{64}", e.sha256)
+        assert e.size_bytes > 0 and e.unpacked_mb > 0 and e.n_images > 0
+        assert e.license and e.source
+    assert ui.catalog_choices()[0][1] == next(iter(CATALOG))
+    assert str(CATALOG["mars-curiosity"].n_images) in ui.catalog_details("mars-curiosity")
+    assert "Conseil" in ui.catalog_details("mars-curiosity")
+    assert ui.catalog_details("inconnu") == ""
+
+
+def test_install_zip_cree_le_jeu_et_ne_retelecharge_pas(tmp_path, train_dir, monkeypatch):
+    z = make_zip(tmp_path / "a.zip", {"x/a.png": png_bytes(300), "y/b.PNG": png_bytes(300, 1), "lisezmoi.txt": b"x"})
+    entry = fake_entry(tmp_path, z)
+    monkeypatch.setitem(CATALOG, entry.key, entry)
+    steps = []
+    folder, messages, installed = ui.install_catalog_dataset(entry.key, train_dir, lambda f, d: steps.append(f))
+    assert installed and messages == []
+    assert folder == train_dir / entry.key
+    assert sorted(p.name for p in folder.iterdir()) == ["a.png", "b.png"]
+    assert sorted(p.name for p in train_dir.iterdir()) == [entry.key]     # plus de dossier de préparation
+    assert steps[-2] == 1 and steps[-1] is None
+    z.unlink()                                                            # la source a disparu : aucun accès
+    assert ui.install_catalog_dataset(entry.key, train_dir) == (folder, [], False)
+
+
+def test_install_tar_et_petites_images_signalees(tmp_path, train_dir, monkeypatch):
+    t = make_tar(tmp_path / "a.tgz", {"d/a.JPEG": png_bytes(300), "d/petite.png": png_bytes(32), "d/n.csv": b"x"})
+    entry = fake_entry(tmp_path, t)
+    monkeypatch.setitem(CATALOG, entry.key, entry)
+    folder, messages, _ = ui.install_catalog_dataset(entry.key, train_dir)
+    assert sorted(p.name for p in folder.iterdir()) == ["a.jpeg", "petite.png"]
+    assert len(messages) == 1 and "sera agrandie" in messages[0]
+
+
+def test_install_empreinte_ou_taille_fausse_refusee(tmp_path, train_dir, monkeypatch):
+    z = make_zip(tmp_path / "a.zip", {"a.png": png_bytes(300)})
+    good = fake_entry(tmp_path, z)
+    for bad in (dataclasses.replace(good, sha256="0" * 64),
+                dataclasses.replace(good, size_bytes=good.size_bytes - 1),
+                dataclasses.replace(good, size_bytes=good.size_bytes + 1)):
+        monkeypatch.setitem(CATALOG, bad.key, bad)
+        with pytest.raises(ValueError, match="pas celui attendu"):
+            ui.install_catalog_dataset(bad.key, train_dir)
+        assert list(train_dir.iterdir()) == []                            # rien d'installé, rien qui traîne
+
+
+def test_install_reprend_apres_arret_brutal(tmp_path, train_dir, monkeypatch):
+    z = make_zip(tmp_path / "a.zip", {"a.png": png_bytes(300)})
+    entry = fake_entry(tmp_path, z)
+    monkeypatch.setitem(CATALOG, entry.key, entry)
+    stale = train_dir / f"{ui.STAGING_PREFIX}telechargement-{entry.key}"
+    stale.mkdir(parents=True)
+    (stale / "archive").write_bytes(b"reste d'un essai interrompu")
+    folder, _, installed = ui.install_catalog_dataset(entry.key, train_dir)
+    assert installed and not stale.exists()
+    assert [p.name for p in folder.iterdir()] == ["a.png"]
+
+
+def test_install_erreurs_converties_en_message(tmp_path, train_dir, monkeypatch):
+    with pytest.raises(ValueError, match="Choisissez"):
+        ui.install_catalog_dataset(None, train_dir)
+    z = make_zip(tmp_path / "a.zip", {"a.png": png_bytes(300)})
+    entry = dataclasses.replace(fake_entry(tmp_path, z), url=(tmp_path / "absent.zip").as_uri())
+    monkeypatch.setitem(CATALOG, entry.key, entry)
+    with pytest.raises(ValueError, match="Échec du téléchargement"):
+        ui.install_catalog_dataset(entry.key, train_dir)
+    assert list(train_dir.iterdir()) == []
+
+
+def test_install_refuse_si_disque_plein(tmp_path, train_dir, monkeypatch):
+    z = make_zip(tmp_path / "a.zip", {"a.png": png_bytes(300)})
+    entry = fake_entry(tmp_path, z)
+    monkeypatch.setitem(CATALOG, entry.key, entry)
+    monkeypatch.setattr(ui.shutil, "disk_usage", lambda _: types.SimpleNamespace(free=1))
+    with pytest.raises(ValueError, match="Pas assez de place"):
+        ui.install_catalog_dataset(entry.key, train_dir)
+
+
+def test_extract_tar_securise(tmp_path):
+    p = tmp_path / "a.tar"
+    with tarfile.open(p, "w") as t:
+        for name, data in {"../../evil.png": png_bytes(), "/abs/b.png": png_bytes(seed=1)}.items():
+            info = tarfile.TarInfo(name)
+            info.size = len(data)
+            t.addfile(info, io.BytesIO(data))
+        link = tarfile.TarInfo("lien.png")
+        link.type = tarfile.SYMTYPE
+        link.linkname = "/etc/passwd"
+        t.addfile(link)
+    dest = tmp_path / "out"
+    written, _ = ui.extract_tar(p, dest, 10_000_000)
+    assert sorted(w.name for w in written) == ["b.png", "evil.png"]
+    assert all(w.parent == dest for w in written)
+    assert not (tmp_path.parent / "evil.png").exists()
+
+
+def test_extract_tar_limites_et_archive_illisible(tmp_path):
+    p = make_tar(tmp_path / "a.tgz", {f"{i}.png": png_bytes(64, i) for i in range(3)})
+    dest = tmp_path / "out"
+    with pytest.raises(ValueError, match="taille décompressée"):
+        ui.extract_tar(p, dest, 100)
+    assert list(dest.iterdir()) == []
+    with pytest.raises(ValueError, match="plus de 2 fichiers"):
+        ui.extract_tar(p, dest, 10_000_000, max_files=2)
+    assert list(dest.iterdir()) == []
+    bad = tmp_path / "bad.tgz"
+    bad.write_bytes(b"pas une archive")
+    with pytest.raises(ValueError, match="illisible"):
+        ui.extract_tar(bad, dest, 1000)
