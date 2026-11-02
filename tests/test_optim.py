@@ -717,5 +717,94 @@ def test_compilation_interrompue(tmp_path):
         export.compile_export(tmp_path, Manifest, str(wrapper), should_stop=lambda: True)
 
 
+@pytest.mark.skipif(os.name == "nt", reason="compilateur factice en script sh")
+def test_compilation_bavarde_ne_bloque_pas(tmp_path, monkeypatch):
+    """Plus de stderr que la capacité d'un tube : l'échec remonte tout de suite, avec la fin du message."""
+    pytest.importorskip("aidge_quantization")
+    from aidge_in_space.optim import export
+    monkeypatch.setattr(export, "COMPILE_TIMEOUT_S", 30)
+
+    class Manifest:
+        inputs = [{"dtype": "float", "dims": [1, 1]}]
+        outputs = [{"dtype": "float", "dims": [1, 1]}]
+    script = tmp_path / "bavard.py"
+    script.write_text("import sys; sys.stderr.write('e' * 200000 + 'fin'); sys.exit(1)\n", encoding="utf-8")
+    wrapper = tmp_path / "cc.sh"
+    wrapper.write_text(f"#!/bin/sh\nexec {sys.executable} {script}\n", encoding="utf-8")
+    wrapper.chmod(0o755)
+    binary, error = export.compile_export(tmp_path, Manifest, str(wrapper))
+    assert binary is None and error.endswith("fin")
+
+
+@pytest.mark.parametrize("name", ["essai FPGA(x, y", "a */ int x"])
+def test_nom_libre_sans_effet_sur_le_c(name):
+    """Le nom donné à l'optimisation ne crée ni faux accélérateur pour locod.sh, ni fin de commentaire."""
+    export_c = pytest.importorskip("aidge_in_space.optim.export_c")
+    text = export_c.comment_text(name)
+    assert "FPGA(" not in text and "*/" not in text
+    assert export_c.comment_text("série n-64.1") == "série n-64.1"
+
+
+def test_dossier_de_resultats_qui_n_en_est_pas_un_refuse(workspace):
+    """--out sur un dossier de checkpoints ne le détruit pas ; un résultat précédent peut être remplacé."""
+    pytest.importorskip("aidge_quantization")
+    from aidge_in_space.optim import pipeline
+    out = workspace["root"] / "precieux"
+    out.mkdir()
+    (out / "modele.pt").write_text("x", encoding="utf-8")
+    with pytest.raises(ConfigError, match="écrasé"):
+        pipeline.run(run_config(workspace), out=out)
+    assert (out / "modele.pt").exists()
+    (out / results.REPORT_NAME).write_text("{}", encoding="utf-8")
+    pipeline._check_out(out)
+    pipeline._check_out(workspace["root"] / "absent")
+
+
+def test_erreur_sqlite_sur_une_etape_ne_fait_pas_echouer_le_job(tmp_path, monkeypatch, capsys):
+    """Une base verrouillée perd la progression de l'étape, jamais le travail du job."""
+    pytest.importorskip("aidge_quantization")
+    from aidge_in_space import optimize
+    from aidge_in_space.optim import pipeline
+    db = tmp_path / "runs.sqlite"
+    store = JobStore(db)
+    job_id = store.submit(_job_config(), kind="optim")
+    store.claim_next("w")
+
+    def locked(*args):
+        raise sqlite3.OperationalError("database is locked")
+
+    def fake_run(cfg, job_id=None, out=None, should_stop=None, on_stage=None, log_path=None):
+        on_stage(1, "import du graphe")
+        return tmp_path
+    monkeypatch.setattr(JobStore, "log_metrics", locked)
+    monkeypatch.setattr(pipeline, "run", fake_run)
+    assert optimize.main(["--job-id", str(job_id), "--db", str(db)]) == EXIT_DONE
+    assert "non enregistrée" in capsys.readouterr().out
+
+
+def test_le_worker_retire_les_dossiers_temporaires_du_job(tmp_path, monkeypatch):
+    """Après un processus tué, le dossier temporaire du job disparaît ; celui d'un autre job reste."""
+    monkeypatch.setattr(config, "OPTIM_DIR", tmp_path / "optim")
+    store = JobStore(tmp_path / "runs.sqlite")
+    job_id = store.submit(_job_config(), kind="optim")
+    mine = config.OPTIM_DIR / f"{job_id}{results.TMP_MARK}123"
+    other = config.OPTIM_DIR / f"{job_id}0{results.TMP_MARK}123"
+    (mine / "fp32").mkdir(parents=True)
+    other.mkdir()
+    monkeypatch.setattr(worker, "OPTIM_CMD", [sys.executable, "-c", "raise SystemExit(1)"])
+    assert worker.run_worker(store, poll=0.05, once=True, stop_event=threading.Event()) == 1
+    assert store.get(job_id).status == "failed"
+    assert not mine.exists() and other.exists()
+
+
+def test_menus_relus_d_apres_l_etat_du_serveur(monkeypatch):
+    """Un checkpoint ou un jeu arrivés après le démarrage apparaissent ; un checkpoint disparu est décoché."""
+    monkeypatch.setattr(ui_optim, "source_choices", lambda: [("a", "a.pt")])
+    monkeypatch.setattr(ui_optim, "dataset_choices", lambda: [("jeu", "jeu")])
+    sources, calibration = ui_optim.menu_updates(["a.pt", "disparu.pt"], None)
+    assert sources["choices"] == [("a", "a.pt")] and sources["value"] == ["a.pt"]
+    assert calibration["choices"] == [("jeu", "jeu")] and calibration["value"] == "jeu"
+
+
 def test_cli_analyse_et_codes_de_retour_constants():
     assert (EXIT_DONE, EXIT_CONFIG) == (0, 2)

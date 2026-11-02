@@ -17,7 +17,7 @@ import aidge_onnx
 import aidge_quantization
 
 from .. import backends
-from ..nn import Balle2017, freeze
+from ..nn import Balle2017
 
 ## Lignes du rapport de quantifiabilité : « - [ok] Conv2D x3 ».
 _REPORT_LINE = re.compile(r"- \[(\S+)\] (\S+) x(\d+)")

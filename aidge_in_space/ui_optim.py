@@ -21,7 +21,7 @@ from .codecs.balle2017 import Balle2017Codec
 from .jobs import JobStore
 from .optim import results
 from .optim.config import DEFAULT_RECIPE, CLIPPINGS, RECIPES, OptimConfig, n_steps
-from .ui_training import REFRESH_S, dataset_choices, worker_banner
+from .ui_training import REFRESH_S, choice_update, dataset_choices, worker_banner
 
 ## Tailles de tuile proposées (côté).
 TILE_CHOICES = [32, 64, 128, 256]
@@ -61,6 +61,19 @@ def list_sources():
 def source_choices():
     """! @brief Choix du menu des checkpoints : couples (libellé, chemin)."""
     return [(s["label"], s["checkpoint"]) for s in list_sources()]
+
+
+def menu_updates(checked, calibration_set):
+    """! @brief Menus relus d'après l'état du serveur : un entraînement ou un jeu d'images a pu apparaître depuis le démarrage.
+
+    @param checked          Checkpoints cochés ; ceux qui ont disparu sont décochés.
+    @param calibration_set  Jeu de calibration choisi.
+    @return Couple de gr.update : les checkpoints, le jeu de calibration.
+    """
+    sources = source_choices()
+    known = {path for _, path in sources}
+    return (gr.update(choices=sources, value=[c for c in checked or [] if c in known]),
+            choice_update(dataset_choices(), calibration_set))
 
 
 def build_config(name, author, checkpoint, codec, in_ch, tile_side, recipes, clipping, per_channel, n_calibration,
@@ -271,7 +284,7 @@ def build_tab(store=None):
     """
     store = store or JobStore()
     sources, datasets = source_choices(), dataset_choices()
-    with gr.Tab("5. Optimisation Aidge", id="optimisation"):
+    with gr.Tab("5. Optimisation Aidge", id="optimisation") as tab:
         ui_style.intro("**Préparez un modèle pour la carte.** Aidge quantifie l'encodeur, mesure sa mémoire face à la BRAM, "
                        "et produit le code C pour le processeur et le FPGA.",
                        "la variante apparaît dans **3. Tester** et **4. Valider**, face à l'original.")
@@ -314,14 +327,16 @@ def build_tab(store=None):
                     o_bd = gr.Dataframe(bd0, show_label=False)
                     o_points = gr.Dataframe(pts0, label="Écarts point par point")
                 with ui_style.card("Code C à télécharger"):
-                    o_files = gr.Dropdown(download_choices(), label="Fichier")
+                    o_files = gr.Dropdown(download_choices(), value=None, label="Fichier")
                     o_file = gr.File(label="Téléchargement")
 
         def form_config(checkpoints, tile, recipes, clip, channel, ncal, calib, nimg, export, compile_export):
             """! @brief Configuration d'analyse : le premier checkpoint coché."""
             if not checkpoints:
                 raise ValueError("Cochez au moins un checkpoint.")
-            s = next(x for x in list_sources() if x["checkpoint"] == checkpoints[0])
+            s = next((x for x in list_sources() if x["checkpoint"] == checkpoints[0]), None)
+            if s is None:
+                raise ValueError(f"Checkpoint inconnu : {checkpoints[0]}")
             return build_config("analyse", "", s["checkpoint"], s["codec"], s["in_ch"], tile, recipes, clip, channel, ncal,
                                 calib or "analyse", nimg, export, compile_export)
 
@@ -354,5 +369,8 @@ def build_tab(store=None):
                            o_compile, o_ind, o_ind_reason], o_status, api_name="launch_optim")
         outputs = [banner, o_alerts, o_table, o_bd, o_points, o_files]
         o_refresh.click(refresh, None, outputs)
+        menus = [o_sources, o_calib]
+        o_refresh.click(menu_updates, menus, menus, show_progress="hidden")
+        tab.select(menu_updates, menus, menus, show_progress="hidden")
         o_files.input(lambda p: p, o_files, o_file)
         gr.Timer(REFRESH_S * 6).tick(refresh, None, outputs)

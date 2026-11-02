@@ -80,15 +80,6 @@ def _write_report(report, folder):
     os.replace(tmp, path)
 
 
-def _portable(path):
-    """! @brief Chemin relatif à la racine du dépôt si possible (en POSIX), sinon absolu."""
-    path = Path(path).resolve()
-    try:
-        return path.relative_to(Path(config.ROOT).resolve()).as_posix()
-    except ValueError:
-        return str(path)
-
-
 def _prepare(cfg):
     """! @brief Vérifie que les données existent et charge le modèle.
 
@@ -334,6 +325,16 @@ def _run_recipe(cfg, recipe, data, calibration, control, reference, folder, repo
             variant.pop("_name", None)
 
 
+def _check_out(final):
+    """! @brief Refuse un dossier de résultats qui contient autre chose qu'un résultat : il serait remplacé à la fin du job.
+
+    @param final  Dossier de résultats.
+    @throws ConfigError si le dossier n'est ni absent, ni vide, ni un résultat précédent.
+    """
+    if final.is_dir() and any(final.iterdir()) and not (final / results.REPORT_NAME).is_file():
+        raise ConfigError(f"{final} contient autre chose qu'un résultat d'optimisation : il serait écrasé")
+
+
 def run(cfg, job_id=None, out=None, should_stop=None, on_stage=None, log_path=None):
     """! @brief Exécute toute l'optimisation.
 
@@ -350,11 +351,12 @@ def run(cfg, job_id=None, out=None, should_stop=None, on_stage=None, log_path=No
     """
     aidge_core.Log.set_console_level(aidge_core.Level.Error)
     progress = _Progress(should_stop, on_stage)
-    data = _prepare(cfg)
     run_id = str(job_id) if job_id is not None else f"cfg-{cfg.name or 'optim'}-{datetime.now():%Y%m%d-%H%M%S}"
     final = Path(out) if out else Path(config.OPTIM_DIR) / run_id
+    _check_out(final)
+    data = _prepare(cfg)
+    results.remove_temporary(final.name, final.parent)     # tentative précédente tuée sans nettoyage
     tmp = final.with_name(f"{final.name}{results.TMP_MARK}{os.getpid()}")
-    shutil.rmtree(tmp, ignore_errors=True)
     tmp.mkdir(parents=True)
     try:
         cfg.to_yaml(tmp / "config.yaml")

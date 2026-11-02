@@ -4,10 +4,11 @@ Un binaire peut compiler et tourner en étant faux : la vérification face au gr
 obligatoire et bloquante (EXPORT_MIN_IDENTICAL_PCT). Compilation directe par g++, sans CMake, seul g++ existant sur le
 poste Windows. Contrat : docs/conception_optimisation.md (§ 1.5 et § 6).
 """
-import contextlib
+import os
 import re
 import shutil
 import subprocess
+import tempfile
 import time
 import zipfile
 from pathlib import Path
@@ -86,9 +87,13 @@ def generate(graph, folder, sample):
     cfg = export_utils.config.ExportConfig(target="host", export_folder=str(folder), compile=False, cuda=False,
                                            dtype="float32", legacy=False, dformat="nchw")
     # L'export écrit exported_graph.mmd dans le dossier courant : pas à la racine du dépôt.
-    with contextlib.chdir(folder.parent):
+    previous = os.getcwd()
+    os.chdir(folder.parent)
+    try:
         artifact = export_utils.export(graph=graph, config=cfg, input_tensors=[tensor(sample)], labels=None, nb_test=0)
         Path("exported_graph.mmd").unlink(missing_ok=True)
+    finally:
+        os.chdir(previous)
     return artifact.manifest
 
 
@@ -113,18 +118,21 @@ def compile_export(folder, manifest, compiler, should_stop=None):
                if p.name != "main.cpp" and p.parts[len(folder.parts)] != "data" and p != main]
     binary = verif / "verif"
     cmd = [compiler, *GXX_FLAGS, "-o", str(binary.relative_to(folder)), str(main.relative_to(folder)), *sources]
-    proc = subprocess.Popen(cmd, cwd=folder, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, text=True)
-    deadline = time.monotonic() + COMPILE_TIMEOUT_S
-    while proc.poll() is None:
-        if (should_stop is not None and should_stop()) or time.monotonic() > deadline:
-            proc.kill()
-            proc.wait()
-            if time.monotonic() > deadline:
-                return None, f"compilation interrompue après {COMPILE_TIMEOUT_S} s"
-            raise CompileStopped()
-        time.sleep(POLL_S)
-    if proc.returncode != 0:
-        return None, proc.stderr.read()[-2000:]
+    # stderr dans un fichier : un tube que personne ne lit bloquerait g++ dès qu'il est plein.
+    with tempfile.TemporaryFile("w+", encoding="utf-8", errors="replace") as errors:
+        proc = subprocess.Popen(cmd, cwd=folder, stdout=subprocess.DEVNULL, stderr=errors)
+        deadline = time.monotonic() + COMPILE_TIMEOUT_S
+        while proc.poll() is None:
+            if (should_stop is not None and should_stop()) or time.monotonic() > deadline:
+                proc.kill()
+                proc.wait()
+                if time.monotonic() > deadline:
+                    return None, f"compilation interrompue après {COMPILE_TIMEOUT_S} s"
+                raise CompileStopped()
+            time.sleep(POLL_S)
+        if proc.returncode != 0:
+            errors.seek(0)
+            return None, errors.read()[-2000:]
     return (binary if binary.exists() else binary.with_suffix(".exe")), ""
 
 

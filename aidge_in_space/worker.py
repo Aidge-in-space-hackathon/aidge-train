@@ -24,6 +24,7 @@ from pathlib import Path
 
 from . import config
 from .jobs import (EXIT_CANCELLED, EXIT_DONE, EXIT_STOPPED, STATUS_LABELS, Job, JobStore)
+from .optim import results
 
 ## Commande d'entraînement ; le worker y ajoute --job-id N --db CHEMIN --watch-stdin. Remplaçable dans les tests.
 TRAIN_CMD = [sys.executable, "-m", "aidge_in_space.train"]
@@ -219,7 +220,22 @@ def run_job(store: JobStore, job: Job, cmd: list[str], poll: float, stop_event: 
     elif status == "interrupted" and killed:
         error = f"arrêt forcé après {STOP_TIMEOUT_S:g} s"
     _finish(store, job.id, status, error)
+    _remove_temporary(store, job)
     return status
+
+
+def _remove_temporary(store: JobStore, job: Job) -> None:
+    """! @brief Après un job d'optimisation, retire ce que son processus, peut-être tué, a laissé.
+    @param store File d'attente.
+    @param job Job terminé. S'il a repris entre-temps sur un autre worker, ses fichiers restent.
+    """
+    if job.kind != "optim":
+        return
+    try:
+        if store.get(job.id).status not in ("queued", "running"):
+            results.remove_temporary(job.id)
+    except (sqlite3.Error, KeyError, OSError) as e:
+        print(f"ATTENTION : fichiers temporaires du job {job.id} non retirés : {e}", flush=True)
 
 
 def _finish(store: JobStore, job_id: int, status: str, error: str | None) -> None:

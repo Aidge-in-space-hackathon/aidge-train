@@ -3,8 +3,10 @@
 Bibliothèque standard uniquement : l'interface et le plugin de codecs découvrent les variantes sans importer Aidge.
 Le dossier d'un job en cours porte le suffixe @c .tmp-PID et reste invisible jusqu'à la fin du job.
 """
+import glob
 import hashlib
 import json
+import shutil
 from pathlib import Path
 
 from .. import config
@@ -46,6 +48,17 @@ def file_sha256(path):
     return _sha_cache[key]
 
 
+def remove_temporary(run_id, optim_dir=None):
+    """! @brief Supprime les dossiers temporaires d'un résultat, laissés par un processus tué.
+
+    @param run_id     Nom du dossier de résultats.
+    @param optim_dir  Dossier des résultats ; None : config.OPTIM_DIR lu à l'appel.
+    """
+    root = Path(config.OPTIM_DIR if optim_dir is None else optim_dir)
+    for path in root.glob(f"{glob.escape(str(run_id))}{TMP_MARK}*"):
+        shutil.rmtree(path, ignore_errors=True)
+
+
 def read_reports(optim_dir=None):
     """! @brief Lit les rapports terminés, du plus ancien au plus récent.
 
@@ -57,9 +70,8 @@ def read_reports(optim_dir=None):
     if not root.is_dir():
         return []
     reports = []
-    for path in sorted(root.glob(f"*/{REPORT_NAME}"), key=lambda p: p.stat().st_mtime):
-        if TMP_MARK in path.parent.name:
-            continue
+    finished = [p for p in root.glob(f"*/{REPORT_NAME}") if TMP_MARK not in p.parent.name]
+    for path in sorted(finished, key=lambda p: p.stat().st_mtime):
         try:
             report = json.loads(path.read_text(encoding="utf-8"))
             if report.get("schema") != REPORT_SCHEMA:

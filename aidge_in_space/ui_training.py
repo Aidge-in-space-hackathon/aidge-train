@@ -1231,8 +1231,8 @@ def build_tabs(store=None, tabs=None):
             raise gr.Error("Sélectionnez d'abord un entraînement.")
         try:
             vals = duplicate_config(store, job_id)
-        except KeyError:
-            raise gr.Error("Ce job n'existe plus.") from None
+        except (KeyError, ValueError) as e:
+            raise gr.Error(str(e.args[0]) if isinstance(e, ValueError) else "Ce job n'existe plus.") from None
         names = ds_names_now()
         if vals["dataset"] not in names:
             gr.Warning(f"Le jeu d'images « {vals['dataset']} » n'existe plus : choisissez-en un autre.")

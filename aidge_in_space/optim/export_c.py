@@ -12,6 +12,7 @@ Le fichier produit répond aux contraintes de LoCod : un seul fichier sans inclu
 Contrat : docs/conception_optimisation.md (§ 10).
 """
 import math
+import re
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -432,6 +433,15 @@ def _indent(text, spaces=4):
     return "\n".join(pad + line for line in text.splitlines())
 
 
+def comment_text(text):
+    """! @brief Texte libre sûr dans un commentaire C : ni fin de commentaire, ni faux appel d'accélérateur pour locod.sh.
+
+    @param text  Texte, par exemple le nom donné à l'optimisation.
+    @return Texte où tout sauf lettres, chiffres, espaces, points et tirets devient « _ ».
+    """
+    return re.sub(r"[^\w .-]", "_", text)
+
+
 def generate_source(layers, model_input, name):
     """! @brief Texte complet de @c main.c.
 
@@ -446,7 +456,7 @@ def generate_source(layers, model_input, name):
     last = layers[-1].output
     c_in, h_in, w_in = model_input.dims
     c_out, h_out, w_out = last.dims
-    head = [f"/* Encodeur {name} : généré depuis le graphe Aidge quantifié. Ne pas modifier. */",
+    head = [f"/* Encodeur {comment_text(name)} : généré depuis le graphe Aidge quantifié. Ne pas modifier. */",
             f"#ifndef {FPGA_MACRO}", "#include <math.h>", "#include <stdio.h>", "#include <string.h>", f"#ifndef {NATIVE_MACRO}",
             '#include "locod.h"', "#endif", "#endif", ""]
     body = [_accelerator_source(l) for l in convs]

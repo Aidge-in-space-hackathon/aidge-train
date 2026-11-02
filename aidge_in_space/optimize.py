@@ -7,6 +7,7 @@ Contrat : docs/conception_optimisation.md (§ 5).
 """
 import argparse
 import json
+import sqlite3
 import sys
 import traceback
 from pathlib import Path
@@ -33,7 +34,7 @@ def build_parser() -> argparse.ArgumentParser:
     src.add_argument("--job-id", type=int, metavar="N", help="job de la base (statut running)")
     src.add_argument("--analyze", metavar="FICHIER", help="import, rapport et mémoire seulement, en JSON sur stdout")
     p.add_argument("--db", metavar="CHEMIN", help="base des jobs (défaut : RUNS_DIR/runs.sqlite)")
-    p.add_argument("--out", metavar="DOSSIER", help="dossier de résultats (défaut : outputs/optim/<id>)")
+    p.add_argument("--out", metavar="DOSSIER", help="dossier de résultats, absent, vide ou résultat précédent à remplacer (défaut : outputs/optim/<id>)")
     p.add_argument("--watch-stdin", action="store_true", help="s'arrête à la fin de stdin")
     return p
 
@@ -88,10 +89,14 @@ def run(args) -> int:
             cfg.to_yaml(store.job_dir(job_id) / "config.yaml")
 
         def on_stage(step, stage):
-            """! @brief Enregistre l'étape dans le journal et dans la base."""
+            """! @brief Enregistre l'étape dans le journal et dans la base (une erreur SQLite est signalée puis ignorée)."""
             _say(f"Étape {step} : {stage}")
-            if store is not None:
+            if store is None:
+                return
+            try:
                 store.log_metrics(job_id, step, "eval", {"kind": "eval", "stage": stage})
+            except sqlite3.Error as e:
+                _say(f"ATTENTION : étape {step} non enregistrée dans la base ({e})")
 
         log_path = store.job_dir(job_id) / "train.log" if job else None
         out = pipeline.run(cfg, job_id=job_id, out=args.out, should_stop=watcher, on_stage=on_stage, log_path=log_path)
