@@ -4,6 +4,7 @@ Un binaire peut compiler et tourner en étant faux : la vérification face au gr
 obligatoire et bloquante (EXPORT_MIN_IDENTICAL_PCT). Compilation directe par g++, sans CMake, seul g++ existant sur le
 poste Windows. Contrat : docs/conception_optimisation.md (§ 1.5 et § 6).
 """
+import contextlib
 import re
 import shutil
 import subprocess
@@ -79,12 +80,15 @@ def generate(graph, folder, sample):
     @param sample  Tuile d'exemple, 1 x C x H x W.
     @return Manifeste de l'export (@c inputs, @c outputs).
     """
-    folder = Path(folder)
+    folder = Path(folder).resolve()
     shutil.rmtree(folder, ignore_errors=True)
     folder.parent.mkdir(parents=True, exist_ok=True)
     cfg = export_utils.config.ExportConfig(target="host", export_folder=str(folder), compile=False, cuda=False,
                                            dtype="float32", legacy=False, dformat="nchw")
-    artifact = export_utils.export(graph=graph, config=cfg, input_tensors=[tensor(sample)], labels=None, nb_test=0)
+    # L'export écrit exported_graph.mmd dans le dossier courant : pas à la racine du dépôt.
+    with contextlib.chdir(folder.parent):
+        artifact = export_utils.export(graph=graph, config=cfg, input_tensors=[tensor(sample)], labels=None, nb_test=0)
+        Path("exported_graph.mmd").unlink(missing_ok=True)
     return artifact.manifest
 
 
