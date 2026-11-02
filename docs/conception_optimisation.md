@@ -5,7 +5,7 @@ format de `report.json`, schéma de la table `jobs`, cycle de vie d'une variante
 compte rendu au lieu de changer le contrat en silence. Conventions : voir `CLAUDE.md` et le préambule de
 `docs/conception_entrainement.md`.
 
-Statut : **proposition, en attente de validation**. Aucun code n'est écrit.
+Statut : **validée le 2 novembre 2026**, implémentation en cours. Le spike LoCod et Bambu est dans `locod/spike/`, avec ses résultats.
 
 ---
 
@@ -95,11 +95,38 @@ fidélité sur ceux-ci.
 | 256 | 6 291 456 o (999 %) | idem | idem |
 | 512 | 25 165 824 o (3 995 %) | idem | idem |
 
-- **Seule la tuile 64 tient en BRAM**, et seulement pour les activations.
+- **Seule la tuile 64 tient en BRAM à N=128**, et seulement pour les activations.
 - **Le mixte réduit les poids de 71 % mais pas le pic d'activations** : il reste à 393 216 o, parce que la GDN
   flottante travaille sur 4 octets par valeur.
 - À N=128, les poids ne tiennent en BRAM dans aucune variante : ils devront vivre en DDR.
 - Binaire : `.text` de 3,66 Mo en FP32, 1,39 Mo en mixte. Il contient les poids.
+
+**Selon N et la tuile, recette mixte** (en % des 630 000 o) :
+
+| N | Tuile | Pic d'activations | Poids totaux | Pic + poids | Poids des convolutions seules |
+| -: | -: | -: | -: | -: | -: |
+| 32 | 64 | 106 496 o (17 %) | 72 032 o (11 %) | **28 %** | 59 360 o (9 %) |
+| 32 | 128 | 425 984 o (68 %) | 72 032 o (11 %) | **79 %** | 59 360 o (9 %) |
+| 64 | 32 | 49 152 o (8 %) | 271 040 o (43 %) | **51 %** | 221 120 o (35 %) |
+| **64** | **64** | **196 608 o (31 %)** | **271 040 o (43 %)** | **74 %** | **221 120 o (35 %)** |
+| 64 | 128 | 786 432 o (125 %) | 271 040 o (43 %) | 168 % | 221 120 o (35 %) |
+| 96 | 64 | 294 912 o (47 %) | 597 024 o (95 %) | 142 % | 485 280 o (77 %) |
+| 128 | 64 | 393 216 o (62 %) | 1 049 984 o (167 %) | 229 % | 851 840 o (135 %) |
+
+- **À N=64, tuile 64, mixte : poids et activations tiennent ensemble en BRAM, à 74 %.** C'est la cible retenue pour la
+  série défendable.
+- En FP32 à N=64, tuile 64, le même total atteint 179 % : c'est la quantification des convolutions qui fait tenir l'ensemble.
+- Avec la GDN sur le PS (§ 10), le PL ne garde en BRAM que les poids des convolutions : **35 %** à N=64, 135 % à N=128.
+- Mesures : plan mémoire d'Aidge sur le graphe mixte. Le contrôle sur le vrai checkpoint N=128 redonne exactement les
+  valeurs du tableau précédent. La qualité d'image à N=64 reste à mesurer sur la série en cours d'entraînement.
+
+Deux pièges de mesure, à reprendre dans `memory.py` et ses tests :
+
+- **Un modèle neuf fausse les chiffres.** Ses GDN sont identiques et l'export ONNX fusionne les initialiseurs identiques
+  (première mesure : 525 312 o de pic au lieu de 393 216 o, et deux GDN disparues des poids). Les tests doivent perturber
+  chaque paramètre avant l'export.
+- **Sur un graphe mixte, le plan mémoire exige une inférence préalable**, sinon `Cannot generate memory with token-based
+  producer-consumer model for node ... (of type Dequantizer)`.
 
 ### 1.5 Extraits d'API exacts
 
@@ -181,7 +208,18 @@ tickets existants ni avec une version plus récente d'Aidge.
 8. **Une config = un checkpoint = un job.** Comme à l'entraînement, cocher plusieurs niveaux dépose plusieurs jobs
    de même nom ; le plugin les regroupe en une courbe.
 9. **Le BD-rate se calcule par paires**, chaque niveau de la variante face au FP32 du même checkpoint. Il faut au
-   moins 4 niveaux (`metrics.bd_rate`), sinon il vaut `null` et l'interface dit « 2 niveaux sur 4 ».
+   moins 4 niveaux (`metrics.bd_rate`), sinon il vaut `null` et l'interface dit « 2 niveaux sur 4 ». **Le calcul est
+   refusé si une courbe n'est pas monotone**, avec cette raison affichée. Les écarts Δbpp et ΔPSNR restent affichés point
+   par point. La série actuelle (λ=1024, 2048, 4096, 8192, entraînements hétérogènes) est **signalée comme indicative**.
+10. **Mixte est la recette par défaut** dans l'interface.
+11. **La vérification de l'export est bloquante.** Moins de 99 % de symboles identiques au graphe Aidge de la même
+    recette : la variante passe en `echec`, avec le taux affiché. Le taux face à PyTorch est affiché aussi, à titre
+    d'information : l'impact réel du mixte se lit dans les écarts de débit-distorsion.
+12. **Deux exports.** L'export C++ d'Aidge reste la référence : vérification sur PC, zip, et plus tard compilation ARM pour
+    mesurer le processeur seul. Le générateur C pur (§ 10) produit le fichier pour LoCod. Il arrive dans son propre commit,
+    après `export.py` et avant l'intégration des jobs.
+13. **La GDN reste sur le PS** dans la première version : pas de racine en PL.
+14. **g++ dans l'image du worker, sans CMake.**
 
 ---
 
@@ -194,7 +232,8 @@ aidge_in_space/optim/
   ptq.py        calibration, tentative INT8 avec détection du no-op, recette mixte
   memory.py     plan mémoire, pic, poids, comparaison à la BRAM
   evaluate.py   fidélité des latents, débit-distorsion sur Kodak, BD-rate
-  export.py     export, compilation si g++ est là, vérification, taille, zip
+  export.py     export C++ d'Aidge, compilation si g++ est là, vérification, taille, zip
+  export_c.py   générateur C pur pour LoCod, depuis le graphe Aidge quantifié (§ 10)
   pipeline.py   enchaînement des étapes, écriture de report.json
 aidge_in_space/optimize.py          CLI
 aidge_in_space/codecs/aidge_variants.py   plugin auto-découvert
@@ -298,6 +337,7 @@ outputs/optim/<id>/         <id> = n° du job, ou cfg-<nom>-<date> en mode --con
   run.log                   copie du journal à la fin (le journal vivant : RUNS_DIR/<id>/train.log)
   fp32/export/ , fp32/export.zip
   mixte/export/ , mixte/export.zip
+  mixte/locod/main.c        fichier unique pour LoCod, recette mixte seulement
 ```
 
 ---
@@ -330,8 +370,9 @@ outputs/optim/<id>/         <id> = n° du job, ou cfg-<nom>-<date> en mode --con
       "rd": {"images": 24, "rate_kind": "réel", "bpp": 0.0, "psnr": 0.0, "ms_ssim": 0.0,
              "delta_bpp_pct": null, "delta_psnr_db": null, "delta_ms_ssim_db": null},
       "export": {"status": "verifie", "path": "fp32/export", "zip": "fp32/export.zip", "compiler": "g++ 14.2.0",
-                 "text_bytes": 3658507, "bss_bytes": 491552, "verified_against": "pytorch",
-                 "symbols_identical_pct": 100.0, "message": null}
+                 "text_bytes": 3658507, "bss_bytes": 491552, "verified_against": "aidge",
+                 "symbols_identical_pct": 100.0, "symbols_identical_vs_pytorch_pct": 100.0, "message": null},
+      "locod": null
     },
     "int8": {
       "status": "sans_effet",
@@ -339,14 +380,19 @@ outputs/optim/<id>/         <id> = n° du job, ou cfg-<nom>-<date> en mode --con
       "signals": {"check_architecture": false, "nodes_unchanged": true, "outputs_identical": true},
       "nodes_before": {}, "nodes_after": {}, "memory": null, "fidelity": null, "rd": null, "export": null
     },
-    "mixte": {"status": "ok", "reason": null}
-  }
+    "mixte": {"status": "ok", "reason": null,
+              "locod": {"status": "verifie", "path": "mixte/locod/main.c", "accelerators": 3,
+                        "pl_weights_bytes": 851840, "transfers_per_tile_bytes": 96256,
+                        "layers_identical_pct": {"conv1": 100.0, "conv2": 100.0, "conv3": 100.0}}}
+  },
+  "series": {"indicative": true, "reason": "entraînements hétérogènes (1 960 à 62 995 pas)"}
 }
 ```
 
 Les valeurs numériques `0.0` ci-dessus sont des emplacements, pas des mesures. Les écarts `delta_*` sont pris face à
 la variante `fp32` de ce rapport, donc à même checkpoint et même tuile. Le BD-rate n'est pas dans ce fichier : il
-porte sur plusieurs jobs et se calcule à la lecture.
+porte sur plusieurs jobs et se calcule à la lecture, avec les écarts point par point et le refus sur courbe non monotone.
+`series.indicative` vient de la config (`evaluate.indicative_series`, faux par défaut).
 
 | `status` d'une variante | Sens | Dans Tester et Valider |
 | :- | :- | :- |
@@ -359,10 +405,11 @@ porte sur plusieurs jobs et se calcule à la lecture.
 | `verifie` | binaire exécuté, latents comparés |
 | `non_compile` | pas de compilateur : export seul, message clair |
 | `echec_compilation` | g++ a échoué, fin de stderr dans `message` |
-| `divergent` | le binaire diffère du graphe Aidge au-delà de la tolérance : **variante en alerte, jamais présentée comme valide** |
+| `divergent` | moins de 99 % de symboles identiques au graphe Aidge : **la variante passe en `echec`, avec le taux affiché** |
 
-Tolérance : FP32, symboles identiques à 100 % face à PyTorch ; mixte, identiques à 100 % face au graphe Aidge de la
-même recette, puisque l'écart à PyTorch est le coût mesuré de la quantification.
+Seuil unique : `EXPORT_MIN_IDENTICAL_PCT = 99`, face au graphe Aidge de la même recette, en FP32 comme en mixte. Le taux
+face à PyTorch (`symbols_identical_vs_pytorch_pct`) est donné pour information : pour le mixte, il mesure le coût de la
+quantification, pas un défaut de l'export.
 
 ---
 
@@ -376,6 +423,10 @@ ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'train' CHECK (kind IN ('
 
 Migration dans `_init_schema`, dans une transaction `BEGIN IMMEDIATE`, en relisant `user_version` à l'intérieur pour
 le cas de deux processus simultanés. Une base en version 1 garde ses jobs, tous de type `train`.
+
+**Pas de retour arrière, assumé.** Une image antérieure refuse une base en version 2 (`RuntimeError`, `user_version` trop
+élevé) : après cette migration, le rollback automatique de `scripts/deploy.sh` ne peut pas relancer l'ancienne image sur
+cette base. On le documente sans le contourner, dans `docs/deploiement.md`.
 
 - `Job` gagne `kind: str`. `submit(config, kind="train")` : les colonnes `in_ch`, `n`, `lmbda`, `steps` restent
   obligatoires et valent, pour un job d'optimisation, les valeurs du checkpoint source et le nombre d'étapes.
@@ -420,56 +471,148 @@ automatiquement.
 
 Fonctions pures et adaptateurs Gradio fins, comme `ui_training.py`, avec les aides `ui_style` (`intro`, `card`, `hint`).
 
-- **Formulaire** : codec et niveaux, tuile, recettes, clipping, par canal, nombre d'images et jeu de calibration, export et compilation.
+- **Formulaire** : codec et niveaux, tuile, recettes (**mixte coché par défaut**), clipping, par canal, nombre d'images et jeu de calibration, export et compilation.
 - **Analyser** : opérateurs (dont `Sqrt` non pris en charge), nœuds, pic mémoire face à la BRAM, et phrase d'explication.
 - **Lancer** : un job par niveau coché.
-- **Tableau des variantes** : recette, statut, nœuds, pic face à la BRAM, poids, Δbpp, ΔPSNR, BD-rate (ou « n niveaux sur 4 »), taille du binaire, état de l'export.
+- **Tableau des variantes** : recette, statut, nœuds, pic face à la BRAM, poids, Δbpp, ΔPSNR, BD-rate (ou « n niveaux sur 4 », ou « courbe non monotone »), mention « série indicative », taille du binaire, état de l'export, taux de symboles identiques face à Aidge et, pour information, face à PyTorch.
 - **Alerte** quand `int8` est `sans_effet` : « Aidge 0.10.1 ne sait pas quantifier la GDN. Le graphe n'a pas changé. La variante mixte garde la GDN en flottant et quantifie les convolutions. »
 - **Téléchargement** du zip de l'export C.
 
 ---
 
-## 10. Contraintes pour isoler une couche par `FPGA()` (hors périmètre, à ne pas fermer)
+## 10. Générateur C pur pour LoCod (`optim/export_c.py`)
 
-Ce que l'export fournit déjà :
+### 10.1 Pourquoi
 
-- tailles entièrement fixées à la compilation, par tuile (`#define` par couche) ;
-- mémoire statique unique et calculée (`static unsigned char mem_0[393216]`), avec un décalage connu par couche ;
-- poids dans des fichiers séparés par couche ;
-- découpage naturel : convolutions entières d'un côté, GDN flottante de l'autre.
+`locod.sh` copie **un seul fichier** vers `main.c`, le passe à Bambu sans `-I`, et le compile en C côté CPU. Le C++ à gabarits
+de l'export Aidge s'arrête donc sur `'cstdint' file not found`, alors que Bambu seul l'accepte. Une convolution réécrite en
+C pur passe sans modifier LoCod : identique à Aidge et juste en simulation Verilog (`locod/spike/README.md`).
 
-Ce qui reste à traiter :
+### 10.2 Contrat
 
-- **Le code généré est du C++ à gabarits** (`export_cpp::convolution_forward<...>`), pas du C. L'énoncé prévoit
-  « ONNX vers C » : **la compatibilité avec LoCod n'est pas vérifiée**, et c'est le premier risque de la suite.
-- Les Quantizer calculent encore en flottant (`Mul`, `Round`, `Clip`). Pour une couche purement entière, il faudra
-  `single_shift=True`, pas encore essayé à l'export.
-- La convolution produit de l'`int32` : accumulateurs à dimensionner côté PL.
-- `dformat="nchw"` ajoute des `Transpose` : le cœur calcule en NHWC, ce qui coûte de la mémoire (`.bss` de 491 552 o
-  au lieu de 393 216 o). À revoir pour la carte.
-- La GDN flottante (`Sqrt`, `Div`) suggère un partage convolutions en PL, GDN en PS. C'est une piste : son coût
-  d'échange PS/PL n'est pas mesuré.
-- `export.py` range le code par couche dans `layers/`, et n'édite jamais les fichiers générés : un futur outil pourra
-  les envelopper.
+```python
+def export_locod(graph, out_dir, *, tile, name="model") -> LocodExport
+```
+
+- **Il lit le graphe Aidge après quantification, jamais PyTorch** : poids et biais (`Producer`), échelles
+  (`aidge_quantization.get_scaling_factor`, et le `Producer` du `Mul` de déquantification), attributs de convolution
+  (micro-graphe de `PaddedConv2D`), ordre des couches (`get_ordered_nodes`).
+- **Réutilisable, pensé comme un export Aidge** (piste de contribution) : le module n'importe que `numpy`, `aidge_core` et
+  `aidge_quantization`, rien d'`aidge_in_space`, ni torch. Il suit la forme de `aidge_export_cpp` : un registre associe chaque
+  motif de nœuds à un émetteur de code, et tout motif inconnu est refusé par `ExportCError`, jamais ignoré.
+- **Sortie : un seul `main.c`**, poids compris, sans autre inclusion locale, avec `#ifndef LOCOD_FPGA` autour de ce qui
+  concerne le CPU.
+- **Convolutions en `FPGA()`** : `void conv_k(struct param_conv_k *param, struct result_conv_k *result)`, tableaux de
+  taille fixe, aucun pointeur interne, poids en `static const` (donc en BRAM avec la politique `LSS`), sortie en virgule
+  fixe. Toute fonction appelée depuis un accélérateur est `static inline`, à cause de `-O0` (`doc/locod_bram.md` de LoCod).
+- **Côté CPU** : quantification de l'entrée, déquantification, GDN flottante, requantification, et enchaînement des
+  couches par `CPU()` ou `FPGA()` selon une macro de compilation.
+- **Virgule fixe** : l'échelle `s` du Quantizer devient `(M, n)`, avec `M` sur 31 bits et `s ≈ M / 2^n`. Sur les deux couches
+  du spike : 100 % de valeurs identiques à Aidge sur une tuile. Le pipeline mesure ce taux sur toutes les tuiles de contrôle.
+
+### 10.3 Vérification couche par couche
+
+Face à l'**export C++** (`-DSAVE_OUTPUTS` écrit la sortie de chaque couche) et au graphe Aidge :
+
+1. Compilation native de `main.c` avec un banc qui écrit la sortie de chaque couche.
+2. Comparaison couche par couche, après conversion NHWC vers NCHW, sur les tuiles de contrôle.
+3. Même seuil que l'export C++ : moins de 99 % de symboles identiques en sortie finale, la variante passe en `echec`. Le
+   taux par couche va dans `report.json`.
+
+Sans g++, `locod.status` vaut `non_compile`. Bambu n'est pas requis par le pipeline : `locod/verifier_bambu.sh` fait la
+preuve manuelle (HDL par accélérateur, puis simulation d'une couche réduite, en lisant `return_port`).
+
+### 10.4 Volume de transferts PS/PL par tuile
+
+La GDN reste sur le PS : chaque convolution reçoit des `int8` du CPU et lui rend des `int8`.
+
+| Couche | N=128, PS vers PL | N=128, PL vers PS | N=64, PS vers PL | N=64, PL vers PS |
+| :- | -: | -: | -: | -: |
+| `conv1` | 12 288 o | 32 768 o | 12 288 o | 16 384 o |
+| `conv2` | 32 768 o | 8 192 o | 16 384 o | 4 096 o |
+| `conv3` | 8 192 o | 2 048 o | 4 096 o | 1 024 o |
+| **Total par tuile 64** | **53 248 o** | **43 008 o** | **32 768 o** | **21 504 o** |
+
+Soit **96 256 o par tuile à N=128 et 54 272 o à N=64**. Pour une image Kodak (96 tuiles) : 9,2 Mo et 5,2 Mo. Les poids restent
+en BRAM : ils ne sont pas transférés à chaque tuile. Ces volumes sont calculés depuis les dimensions, pas mesurés. Le coût
+réel d'un échange dépend de `cp_param_and_result_to_accel_memory` de LoCod et du bus, à mesurer sur carte.
+
+### 10.5 Limites
+
+- `locod.sh` de bout en bout n'a pas été exécuté. Les commits épinglés de `locod-fpga` et de `LoCod-docker-nanoxplore`
+  n'existent plus sur GitHub. Leur branche par défaut existe, sa compatibilité n'est pas testée.
+- L'interface réelle `param` et `result` a été synthétisée, pas simulée.
+- `dformat="nchw"` ajoute des `Transpose` à l'export C++ : ils n'existent pas dans le générateur C.
 
 ---
 
-## 11. Limites connues et points non vérifiés
+## 11. Performance PL
+
+**Axe d'optimisation du livrable, à mesurer : rien n'est implémenté ici.** Toutes les durées ci-dessous sont des
+**estimations**, pas des mesures sur carte.
+
+### 11.1 Point de départ
+
+Une simulation Verilog sur la couche réduite donne 55 619 cycles pour 11 532 multiplications, soit environ 4,8 cycles en
+comptant les copies du banc, de l'ordre de **4,5 cycles par multiplication** pour la convolution seule. Le circuit généré
+avec `-O0` n'effectue qu'**une multiplication à la fois**, à environ 100 MHz d'après Bambu.
+
+| Couche | Fenêtres (bords compris) | Multiplications N=128 | Multiplications N=64 |
+| :- | :- | -: | -: |
+| `conv1` | 139 x 139 x 3 x N | 7,42 M | 3,71 M |
+| `conv2` | 37 x 37 x N x N | 22,43 M | 5,61 M |
+| `conv3` | 17 x 17 x N x N | 4,73 M | 1,18 M |
+| **Total par tuile 64** | | **34,6 M** | **10,5 M** |
+
+### 11.2 Débit estimé
+
+Convolutions seules. Sont exclus la GDN sur le PS, les transferts et le codage entropique, donc ce débit est un majorant.
+
+| Cible | N=128 : par tuile | N=128 : image Kodak | N=64 : par tuile | N=64 : image Kodak |
+| :- | -: | -: | -: | -: |
+| PL, 4,5 cycles par multiplication, 100 MHz | 1,56 s | 2,5 min | 0,47 s | 45 s |
+| Cortex-A9, 650 MHz, C scalaire, environ 4 cycles par multiplication | 0,21 s | 20 s | 0,065 s | 6 s |
+| Cortex-A9, 650 MHz, NEON, 0,5 à 1 cycle par multiplication | 0,03 à 0,05 s | 3 à 5 s | 0,008 à 0,016 s | 1 à 2 s |
+
+Les chiffres du Cortex-A9 sont des ordres de grandeur tirés de sa fréquence et d'hypothèses de cycles par opération (celle
+de la carte PYNQ-Z2), **sans aucune mesure** : caches et accès mémoire peuvent les dégrader fortement.
+
+**Lecture honnête : tel quel, le PL serait environ 7 fois plus lent que le processeur scalaire.** Pour le rattraper à
+100 MHz, il faudrait au moins 7 multiplications par 4,5 cycles (une multiplication utile à chaque cycle ou presque). C'est
+l'enjeu de cet axe : un accélérateur séquentiel n'accélère rien. La compilation ARM de l'export C++ doit fournir la vraie
+référence.
+
+### 11.3 Leviers à mesurer ensuite
+
+| Levier | Idée | Contrainte connue |
+| :- | :- | :- |
+| **N=64** | 3,3 fois moins de multiplications, poids à 35 % de la BRAM | qualité à mesurer sur la série en cours |
+| **Déroulage et pipeline** | plusieurs multiplications par cycle (`--pipelining`, déroulage à la source) | LoCod impose `-O0` pour la BRAM et les sous-fonctions : à revalider si l'on change d'option |
+| **Nombre de DSP** | le spike en utilise 0 à 3 sur les 220 d'un XC7Z020 ; les multiplications 8 x 8 passent en logique | marge considérable, à exploiter avec le déroulage |
+| **Partition des poids** | une BRAM à simple accès limite à une lecture par cycle : répartir les poids par filtre | augmente le nombre de blocs BRAM |
+| **Accélérateurs parallèles** | LoCod lance plusieurs `FPGA()` en parallèle : découper une couche par filtres ou par lignes | surface multipliée d'autant, bus partagé |
+| **Fréquence** | 100 à 118 MHz estimés sans placement ni routage | à confirmer avec Vivado |
+| **Volume de transferts** | enchaîner `conv` en PL réduirait les échanges, mais la GDN l'interdit dans cette version | GDN simplifiée, hors périmètre |
+| **`single_shift`** | Quantizer en décalage seul, plus simple que la multiplication par `M` | fidélité à mesurer |
+
+Mesures à consigner pour chaque essai : cycles par simulation Verilog, surface, DSP, BRAM, fréquence, et l'écart débit-distorsion
+si la structure change.
+
+---
+
+## 12. Limites connues et points non vérifiés
 
 - **Toutes les mesures viennent de Linux dans Docker.** Le poste actuel n'a pas de `.venv`, et ni Aidge ni torch dans
   son Python. La compilation par le g++ MSYS2 sous Windows n'est pas essayée.
 - **Coût débit-distorsion : 4 images, un seul checkpoint, débit estimé.** Les chiffres réels sortiront du pipeline.
-- **BD-rate non mesuré.** Une seule série ne compte pas 4 niveaux aujourd'hui. Les checkpoints utilisables
-  (λ=1024 run9, 2048 run4, 4096 run7, 8192 run6) n'ont pas le même entraînement (1 960 à 62 995 pas) : le chiffre
-  sera indicatif, à refaire avec une vraie série.
+- **BD-rate** : la série actuelle n'a pas le même entraînement (1 960 à 62 995 pas). Le chiffre sera indicatif, signalé comme
+  tel, en attendant la série N=64.
 - **Déterminisme** vérifié dans un même processus seulement. Le pipeline le contrôlera entre deux processus, et
   l'empreinte du checkpoint sera vérifiée au rechargement.
-- **Retour arrière du déploiement** : une ancienne image refuse une base en version 2 (`user_version` trop élevé). Le
-  rollback automatique de `scripts/deploy.sh` échouerait après la migration. À documenter dans `docs/deploiement.md`.
 - **Temps** : les mesures du binaire (70 à 230 ms par tuile 64) ont été prises sur un PC chargé. Elles sont
   indicatives, et un job en cours fausse aussi le banc d'essai.
 - **Calibration** : avec 16 tuiles 64 x 64, l'erreur brute atteint 5 à 9 sur quelques valeurs. D'où le défaut de 32
   tuiles, sans garantie.
 - **Hyperprior** : hors périmètre, seul Ballé 2017 factorisé est pris en charge.
 
-Hors périmètre : LoCod, Vivado, mesures sur carte, GDN simplifiée (Johnston et al. 2019). Le notebook n'est pas modifié.
+Hors périmètre : Vivado, mesures sur carte, GDN simplifiée (Johnston et al. 2019), racine en PL. Le notebook n'est pas modifié.
