@@ -1,6 +1,6 @@
 # Guide de l'interface d'entraînement
 
-Ce guide s'adresse à toute personne de l'équipe, même sans avoir jamais ouvert de terminal. L'interface suit quatre étapes, une par onglet : **1. Entraîner**, **2. Suivre**, **3. Tester** et **4. Valider**.
+Ce guide s'adresse à toute personne de l'équipe, même sans avoir jamais ouvert de terminal. L'interface suit cinq étapes, une par onglet : **1. Entraîner**, **2. Suivre**, **3. Tester**, **4. Valider** et **5. Optimisation Aidge**.
 
 ## Sommaire
 
@@ -10,8 +10,9 @@ Ce guide s'adresse à toute personne de l'équipe, même sans avoir jamais ouver
 4. [Suivre l'entraînement (onglet 2. Suivre)](#4-suivre-lentraînement-onglet-2-suivre)
 5. [Annuler, relancer, dupliquer](#5-annuler-relancer-dupliquer)
 6. [Tester et valider le modèle (onglets 3 et 4)](#6-tester-et-valider-le-modèle-onglets-3-et-4)
-7. [Quand quelque chose ne va pas](#7-quand-quelque-chose-ne-va-pas)
-8. [Bon à savoir](#8-bon-à-savoir)
+7. [Préparer le modèle pour la carte (onglet 5. Optimisation Aidge)](#7-préparer-le-modèle-pour-la-carte-onglet-5-optimisation-aidge)
+8. [Quand quelque chose ne va pas](#8-quand-quelque-chose-ne-va-pas)
+9. [Bon à savoir](#9-bon-à-savoir)
 
 ## 1. Démarrer la plateforme
 
@@ -174,7 +175,51 @@ Un modèle terminé apparaît tout seul dans les menus. Sinon, ouvrez la section
 
 Le banc d'essai est décrit dans le [README](../README.md#banc-dessai-de-compression).
 
-## 7. Quand quelque chose ne va pas
+## 7. Préparer le modèle pour la carte (onglet 5. Optimisation Aidge)
+
+Sur la carte, la mémoire et le calcul sont comptés. Un modèle entraîné utilise des nombres à virgule, coûteux et volumineux. Cet onglet demande à l'outil **Aidge** de le préparer : il remplace ces nombres par de petits entiers là où c'est possible (on dit « quantifier »), vérifie ce que cela coûte en qualité, et produit le code à mettre sur la carte.
+
+### Les recettes
+
+| Recette | Ce qu'elle fait | Résultat attendu |
+| :- | :- | :- |
+| **mixte** (conseillée, cochée par défaut) | Quantifie les grandes opérations de filtrage (les convolutions), et garde en nombres à virgule la partie de normalisation (la GDN) | Beaucoup moins de mémoire pour un coût de qualité faible |
+| **fp32** | Ne quantifie rien | Sert de point de comparaison : elle est toujours calculée |
+| **int8** | Essaie de quantifier tout le modèle | Aujourd'hui, l'alerte **SANS EFFET** s'affiche : Aidge ne sait pas encore quantifier la GDN. Ce n'est pas une panne de votre part |
+
+### Pas à pas
+
+1. Donnez un nom à l'optimisation et cochez un ou plusieurs modèles. Cochez plusieurs niveaux de λ pour obtenir une courbe.
+2. Choisissez les **images de calibration** : Aidge s'en sert pour régler les entiers. Prenez des images proches de ce que verra le rover.
+3. Gardez la **taille de tuile** de 64 si vous n'avez pas de raison d'en changer. L'image est découpée en carrés de cette taille, traités un par un : c'est ce qui limite la mémoire.
+4. Cliquez sur **Analyser** : en quelques secondes, vous voyez si le modèle tiendra en mémoire.
+5. Cliquez sur **Lancer** : un job part dans la file, comme un entraînement. Suivez-le dans l'onglet **2. Suivre**. Comptez plusieurs minutes par modèle, davantage avec la compilation et les 24 images d'évaluation.
+
+Une fois le job terminé, la variante apparaît dans les onglets **3. Tester** et **4. Valider**, sous un nom qui commence par « Aidge ». Dans ces onglets, elle s'exécute toujours avec Aidge, quel que soit le moteur choisi : c'est plus lent, et c'est voulu.
+
+### Lire les résultats
+
+| Colonne | Signification |
+| :- | :- |
+| **pic / BRAM** | Mémoire de travail nécessaire, comparée à la mémoire rapide du FPGA (la BRAM, 615 Kio sur notre carte). Au-delà de 100 %, cela ne tient pas |
+| **poids conv / BRAM** | Place des poids qui restent dans le FPGA, la GDN étant calculée par le processeur |
+| **Δbpp** | Écart de débit face à fp32. +3 % : le fichier compressé est 3 % plus gros |
+| **ΔPSNR** | Écart de qualité face à fp32. -0,05 dB : une perte très faible |
+| **identiques Aidge** | Le code généré donne-t-il les mêmes résultats qu'Aidge ? **En dessous de 99 %, la variante passe en ÉCHEC** : ce code ne doit pas partir sur la carte |
+| **identiques PyTorch** | À titre d'information : l'écart avec le modèle d'origine, normal pour une variante quantifiée. C'est Δbpp et ΔPSNR qui disent si cet écart est gênant |
+
+**BD-rate** : l'écart de débit à qualité égale sur toute la courbe, face à fp32. Il faut au moins 4 modèles de λ différents, et des courbes régulières, sinon la raison s'affiche à la place du chiffre. Les écarts point par point restent toujours affichés. La mention **indicative** rappelle que les modèles n'ont pas eu le même entraînement.
+
+### Récupérer le code
+
+Le menu **Code C à télécharger** propose :
+
+- **export C++ (zip)** : le code d'Aidge, à compiler pour le processeur de la carte ;
+- **fichier C pour LoCod** : un seul fichier `main.c`, pour la chaîne FPGA. Les convolutions y sont des accélérateurs, et la GDN reste sur le processeur.
+
+Sans compilateur sur la machine, le code est quand même produit, mais non vérifié : la colonne **export** indique `non_compile`.
+
+## 8. Quand quelque chose ne va pas
 
 | Situation | Que faire |
 | :- | :- |
@@ -185,13 +230,15 @@ Le banc d'essai est décrit dans le [README](../README.md#banc-dessai-de-compres
 | Un job est « En échec » | Lisez le message d'erreur dans le résumé et la fin du journal. Cause fréquente : pas d'internet au premier lancement (Kodak), jeu d'images vide ou supprimé, mémoire insuffisante (diminuez le nombre de morceaux gardés en mémoire). Corrigez, puis **Relancer** ou **Dupliquer la configuration**. |
 | Le navigateur n'affiche pas l'interface AIDGE | Voir [section 1](#1-démarrer-la-plateforme) : le port 7860 est occupé par un autre programme. |
 | Un message d'erreur s'affiche dans une fenêtre | Il explique en français ce qui manque (nom du run vide, aucun λ coché, jeu d'images absent, etc.). |
+| Une variante affiche SANS EFFET | C'est normal pour `int8` tant qu'Aidge ne sait pas quantifier la GDN : utilisez `mixte`. |
+| Une variante affiche ÉCHEC | Lisez la raison au-dessus du tableau. Si le code généré diffère d'Aidge, ne l'utilisez pas et transmettez le numéro du job à l'équipe. |
 
 Si le problème persiste, notez le numéro du job et le message d'erreur et transmettez-les à l'équipe.
 
-## 8. Bon à savoir
+## 9. Bon à savoir
 
 - **Un entraînement en cours ralentit l'ordinateur** et fausse les temps de calcul mesurés dans le banc d'essai. Ne lancez pas de campagne de mesure de temps pendant un entraînement : l'interface vous le rappelle dans le bandeau.
 - **Un GPU est conseillé** pour les entraînements standard (plusieurs heures). Le PC de l'équipe a une carte NVIDIA, mais l'installation par défaut utilise le processeur seul ; voir le [README](../README.md) pour installer la version GPU de PyTorch.
-- **Où sont les fichiers ?** Les modèles entraînés sont dans `outputs/checkpoints/`, avec le numéro du job dans le nom (`..._run12.pt`). Les journaux et la file d'attente sont dans `outputs/runs/`. Ces dossiers ne sont pas versionnés.
+- **Où sont les fichiers ?** Les modèles entraînés sont dans `outputs/checkpoints/`, avec le numéro du job dans le nom (`..._run12.pt`). Les journaux et la file d'attente sont dans `outputs/runs/`. Les variantes Aidge et leur code sont dans `outputs/optim/`. Ces dossiers ne sont pas versionnés.
 - **Ne supprimez pas** `outputs/runs/runs.sqlite` : c'est la mémoire de la file d'attente.
 - Les jeux d'images sont dans `data/train/`, un sous-dossier par jeu.

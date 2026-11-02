@@ -462,7 +462,7 @@ running -> failed / cancelled / interrupted -> requeue : recommence le job
 encode chacune, assemble les latents **en un seul flux** (les temps et le débit restent comparables), puis décode
 tuile par tuile.
 
-Clés de codec : `aidge-<slug du nom>-<recette>-t<H>`. Les tests paramétrés de `test_bench.py` les couvrent
+Clés de codec : `aidge-<slug du nom>-c<canaux>-n<N>-<recette>-t<H>` (l'architecture évite qu'un même nom donne deux fois la même clé). `LearnedCodec` gagne aussi `_pad_multiple(model)` : l'image est complétée à un multiple de la tuile. Les tests paramétrés de `test_bench.py` les couvrent
 automatiquement.
 
 ---
