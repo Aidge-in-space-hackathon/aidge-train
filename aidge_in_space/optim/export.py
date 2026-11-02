@@ -237,18 +237,18 @@ def conv_layer_outputs(binary, folder):
     saved = Path(binary).parent / "data" / "export_outputs"
     names = sorted((p.name[:-len("_output_0.txt")] for p in saved.glob("*_output_0.txt")),
                    key=lambda s: int(s.split("_")[1]))
-    out, k, armed = {}, 0, False
+    out, k, state = {}, 0, None
     gdn = 0
     for name in names:
         kind = name.split("_")[2]
         if kind == "PadConv":
-            k, armed = k + 1, False
-        elif kind == "Clip" and k:
-            armed = True
-        elif kind == "Cast" and armed:
+            k, state = k + 1, "clip"
+        elif kind == "Clip" and state == "clip":
+            state = "cast"
+        elif kind == "Cast" and state == "cast":
             dims, nhwc = _layer_dims(folder, name)
             out[f"conv{k}"] = read_saved_output(saved / f"{name}_output_0.txt", dims, nhwc)
-            armed = False
+            state = None    # le Clip suivant est celui de la quantification d'entrée de la couche d'après
         elif kind == "Div":
             gdn += 1
             dims, nhwc = _layer_dims(folder, name)
