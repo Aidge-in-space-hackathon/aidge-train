@@ -36,14 +36,20 @@ FINAL_STATUSES = ("done", "failed", "cancelled", "interrupted")
 REQUEUE_FROM = ("failed", "cancelled", "interrupted")
 ## Nom du fichier de base dans RUNS_DIR.
 DB_NAME = "runs.sqlite"
-## Version du schéma (PRAGMA user_version).
-SCHEMA_VERSION = 1
+## Version du schéma (PRAGMA user_version). Une version antérieure du code refuse une base plus récente : la migration
+## vers la version 2 n'a pas de retour arrière (voir docs/deploiement.md).
+SCHEMA_VERSION = 2
+## Types de jobs : un entraînement, ou une optimisation Aidge.
+JOB_KINDS = ("train", "optim")
 ## Délai d'attente (secondes et millisecondes) sur une base verrouillée par un autre processus.
 BUSY_TIMEOUT_S = 30
 ## Longueur maximale (caractères) du message d'erreur d'un job.
 MAX_ERROR_CHARS = 4000
 ## Types de métriques acceptés.
 METRIC_KINDS = ("train", "eval")
+
+## Migration de la version 1 vers la version 2 : les jobs existants deviennent des entraînements.
+_MIGRATE_V2 = "ALTER TABLE jobs ADD COLUMN kind TEXT NOT NULL DEFAULT 'train' CHECK (kind IN ('train', 'optim'))"
 
 ## Schéma SQL, créé dans une transaction BEGIN IMMEDIATE si user_version vaut 0.
 _SCHEMA = """
@@ -68,7 +74,8 @@ CREATE TABLE IF NOT EXISTS jobs (
     queued_at        REAL    NOT NULL,
     started_at       REAL,
     finished_at      REAL,
-    heartbeat_at     REAL
+    heartbeat_at     REAL,
+    kind             TEXT    NOT NULL DEFAULT 'train' CHECK (kind IN ('train', 'optim'))
 );
 CREATE INDEX IF NOT EXISTS jobs_status_queue ON jobs (status, queued_at, id);
 CREATE TABLE IF NOT EXISTS metrics (
@@ -134,6 +141,8 @@ class Job:
     finished_at: float | None
     ## Dernier battement de cœur du worker pour ce job, en secondes Unix.
     heartbeat_at: float | None
+    ## Type du job, parmi JOB_KINDS.
+    kind: str = "train"
 
 
 def _row_to_job(row: sqlite3.Row) -> Job:
@@ -148,7 +157,7 @@ def _row_to_job(row: sqlite3.Row) -> Job:
         cancel_requested=bool(row["cancel_requested"]), attempts=row["attempts"],
         worker=row["worker"], ckpt_path=row["ckpt_path"], error=row["error"],
         created_at=row["created_at"], queued_at=row["queued_at"], started_at=row["started_at"],
-        finished_at=row["finished_at"], heartbeat_at=row["heartbeat_at"])
+        finished_at=row["finished_at"], heartbeat_at=row["heartbeat_at"], kind=row["kind"])
 
 
 def _is_number(v) -> bool:
@@ -240,6 +249,18 @@ class JobStore:
             if version > SCHEMA_VERSION:
                 raise RuntimeError(f"base {self.path} de version {version} : "
                                    f"cette version du code gère jusqu'à {SCHEMA_VERSION}")
+            if version == 1:
+                con.execute("BEGIN IMMEDIATE")
+                try:
+                    # Un autre processus a pu migrer la base entre-temps.
+                    if con.execute("PRAGMA user_version").fetchone()[0] == 1:
+                        con.execute(_MIGRATE_V2)
+                        con.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
+                    con.execute("COMMIT")
+                except BaseException:
+                    if con.in_transaction:
+                        con.execute("ROLLBACK")
+                    raise
             if version == 0:
                 con.execute("PRAGMA journal_mode = DELETE")
                 con.execute("BEGIN IMMEDIATE")
@@ -271,12 +292,15 @@ class JobStore:
         """
         return self.path.parent / str(job_id)
 
-    def submit(self, config: dict) -> int:
+    def submit(self, config: dict, kind: str = "train") -> int:
         """! @brief Insère un job en file d'attente.
-        @param config TrainConfig.to_dict() ; clés name, author, in_ch, N, lmbda, steps obligatoires.
+        @param config TrainConfig.to_dict() ou OptimConfig.to_job() ; clés name, author, in_ch, N, lmbda, steps obligatoires.
+        @param kind Type du job, parmi JOB_KINDS.
         @return L'identifiant du job.
-        @throws ValueError Clé absente ou mal typée, nom vide, steps < 1, config non sérialisable en JSON.
+        @throws ValueError Type inconnu, clé absente ou mal typée, nom vide, steps < 1, config non sérialisable en JSON.
         """
+        if kind not in JOB_KINDS:
+            raise ValueError(f"type de job inconnu : {kind!r}")
         if not isinstance(config, dict):
             raise ValueError("la configuration doit être un dictionnaire")
         for key in ("name", "author", "in_ch", "N", "lmbda", "steps"):
@@ -304,9 +328,9 @@ class JobStore:
         with self._write() as con:
             cur = con.execute(
                 "INSERT INTO jobs (status, name, author, config_json, in_ch, n, lmbda, steps, "
-                "created_at, queued_at) VALUES ('queued', ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                "created_at, queued_at, kind) VALUES ('queued', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                 (name, author, blob, config["in_ch"], config["N"], float(config["lmbda"]),
-                 config["steps"], now, now))
+                 config["steps"], now, now, kind))
             return int(cur.lastrowid)
 
     def get(self, job_id: int) -> Job:

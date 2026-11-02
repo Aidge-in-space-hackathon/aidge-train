@@ -27,6 +27,8 @@ from .jobs import (EXIT_CANCELLED, EXIT_DONE, EXIT_STOPPED, STATUS_LABELS, Job, 
 
 ## Commande d'entraînement ; le worker y ajoute --job-id N --db CHEMIN --watch-stdin. Remplaçable dans les tests.
 TRAIN_CMD = [sys.executable, "-m", "aidge_in_space.train"]
+## Commande d'optimisation Aidge, mêmes arguments et mêmes codes de retour. Remplaçable dans les tests.
+OPTIM_CMD = [sys.executable, "-m", "aidge_in_space.optimize"]
 ## Période de scrutation et des battements de cœur, en secondes.
 POLL_S = 5.0
 ## Âge au-delà duquel un job running est orphelin.
@@ -47,6 +49,17 @@ SLICE_S = 0.25
 FINISH_RETRIES = 5
 ## Attente (secondes) entre deux tentatives d'écriture du statut final.
 FINISH_RETRY_WAIT_S = 2.0
+
+
+def job_command(job: Job, cmd: list[str] | None = None) -> list[str]:
+    """! @brief Commande à lancer pour un job, selon son type.
+    @param job Job pris.
+    @param cmd Commande imposée pour tous les jobs (tests), ou None.
+    @return Commande de base, à laquelle run_job ajoute --job-id, --db et --watch-stdin.
+    """
+    if cmd is not None:
+        return list(cmd)
+    return list(OPTIM_CMD if job.kind == "optim" else TRAIN_CMD)
 
 
 def tail(path: Path, n: int = ERROR_TAIL_LINES) -> str:
@@ -243,12 +256,11 @@ def run_worker(store: JobStore, poll: float = POLL_S, once: bool = False, cmd: l
     @param store File d'attente.
     @param poll Période de scrutation et des battements de cœur, en secondes.
     @param once Traiter au plus un job puis quitter.
-    @param cmd Commande d'entraînement (défaut TRAIN_CMD).
+    @param cmd Commande pour tous les jobs (tests) ; None : TRAIN_CMD ou OPTIM_CMD selon le type du job.
     @param stop_event Événement d'arrêt ; créé et relié aux signaux si None.
     @param name Nom du worker (défaut hôte-pid).
     @return Le nombre de jobs traités.
     """
-    cmd = list(cmd) if cmd is not None else list(TRAIN_CMD)
     name = name or f"{socket.gethostname()}-{os.getpid()}"
     previous: dict = {}
     if stop_event is None:
@@ -280,7 +292,7 @@ def run_worker(store: JobStore, poll: float = POLL_S, once: bool = False, cmd: l
                 continue
             print(f"Job {job.id} « {job.name} » pris par {name}", flush=True)
             try:
-                status = run_job(store, job, cmd, poll, stop_event, name)
+                status = run_job(store, job, job_command(job, cmd), poll, stop_event, name)
                 print(f"Job {job.id} : {STATUS_LABELS[status]}", flush=True)
             except Exception as e:
                 print(f"ATTENTION : erreur sur le job {job.id} : {e}", flush=True)

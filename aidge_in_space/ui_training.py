@@ -27,6 +27,7 @@ from . import config, ui_style
 from .dataset_catalog import CATALOG, download_archive
 from .images import IMAGE_EXTS, MODE_LABELS, list_images
 from .jobs import STATUS_LABELS, JobStore
+from .optim import results
 from .training.imaging import to_8bit
 from .training.config import PRESETS, TrainConfig, schedule_for
 
@@ -60,7 +61,9 @@ REFRESH_S = 5
 ## Nombre de vignettes montrées par jeu d'images.
 N_SAMPLES = 6
 ## Colonnes du tableau des jobs.
-TABLE_COLUMNS = ["n°", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)", "temps restant", "créé le"]
+TABLE_COLUMNS = ["n°", "type", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)", "temps restant", "créé le"]
+## Libellés des types de jobs.
+KIND_LABELS = {"train": "Entraînement", "optim": "Aidge"}
 ## Octets lus en fin de train.log pour en extraire les dernières lignes.
 LOG_TAIL_BYTES = 65536
 ## Nombre maximal de messages d'avertissement affichés en fenêtre après un envoi.
@@ -697,7 +700,7 @@ def jobs_table(store, now=None):
     for job in visible_jobs(store):
         train = store.metrics(job.id, "train") if job.status == "running" else []
         pct, eta = job_progress(job, train, now)
-        rows.append({"n°": job.id, "nom": job.name, "auteur": job.author, "statut": _status_label(job),
+        rows.append({"n°": job.id, "type": KIND_LABELS.get(job.kind, job.kind), "nom": job.name, "auteur": job.author, "statut": _status_label(job),
                      "λ": _lmbda_text(job.lmbda), "N": job.N, "mode": "gris" if job.in_ch == 1 else "rgb",
                      "progression (%)": pct, "temps restant": format_duration(eta),
                      "créé le": time.strftime("%Y-%m-%d %H:%M", time.localtime(job.created_at))})
@@ -706,7 +709,7 @@ def jobs_table(store, now=None):
 
 def job_choices(store):
     """! @brief Jobs pour un menu : couples (« n°12 · nom · λ=2048 · En cours », identifiant)."""
-    return [(f"n°{j.id} · {j.name} · λ={_lmbda_text(j.lmbda)} · {_status_label(j)}", j.id)
+    return [(f"n°{j.id} · {'Aidge · ' if j.kind == 'optim' else ''}{j.name} · λ={_lmbda_text(j.lmbda)} · {_status_label(j)}", j.id)
             for j in visible_jobs(store)]
 
 
@@ -753,8 +756,22 @@ def _curves(metrics):
     return fig
 
 
+def _optim_summary(job):
+    """! @brief Synthèse Markdown d'une optimisation Aidge : statut, source, résultat par recette, erreur."""
+    source = job.config.get("source", {})
+    lines = [f"**n°{job.id} · {job.name}** ({job.author or 'auteur inconnu'}) : **{_status_label(job)}**, "
+             f"étape {job.last_step} sur {job.steps}.",
+             f"- Optimisation Aidge de `{source.get('checkpoint', '?')}`, N={job.N}, λ={_lmbda_text(job.lmbda)}.",
+             results.summary_markdown(results.report_for_job(job.id))]
+    if job.error:
+        lines.append(f"- Message d'erreur :\n\n```\n{job.error}\n```")
+    return "\n".join(lines)
+
+
 def _summary(job):
     """! @brief Synthèse Markdown d'un job : statut, réglages, checkpoint, erreur."""
+    if job.kind == "optim":
+        return _optim_summary(job)
     c = job.config
     lines = [f"**n°{job.id} · {job.name}** ({job.author or 'auteur inconnu'}) : **{_status_label(job)}**, "
              f"pas {job.last_step} sur {job.steps}.",
@@ -783,7 +800,7 @@ def job_details(store, job_id, n_log_lines=50):
         return None, "", "Sélectionnez un job."
     job = store.get(int(job_id))
     metrics = store.metrics(job.id)
-    return _curves(metrics), _log_tail(store.job_dir(job.id) / "train.log", n_log_lines), _summary(job)
+    return None if job.kind == "optim" else _curves(metrics), _log_tail(store.job_dir(job.id) / "train.log", n_log_lines), _summary(job)
 
 
 def job_model_file(store, job_id):
@@ -837,8 +854,11 @@ def duplicate_config(store, job_id):
     @return Dictionnaire @c name (« nom (copie) »), @c author, @c dataset, @c mode, @c preset, @c lambdas,
             @c N, @c gdn_last, @c steps, @c batch_size, @c lr, @c crop, @c n_patches, @c seed.
     @throws KeyError si le job est inconnu.
+    @throws ValueError si le job est une optimisation Aidge : ce formulaire ne concerne que les entraînements.
     """
     job = store.get(int(job_id))
+    if job.kind == "optim":
+        raise ValueError("Ce job est une optimisation Aidge : réglez-la dans l'onglet 5.")
     c = job.config
     lam = job.lmbda
     return {"name": f"{job.name} (copie)", "author": job.author, "dataset": Path(c.get("train_dir", "")).name,
