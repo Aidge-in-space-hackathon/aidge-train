@@ -1,0 +1,24 @@
+# Optimisation complète d'un checkpoint : FP32 de référence, tentative INT8 et recette mixte.
+# python -m aidge_in_space.optimize --config configs/optim/mixte_kodak.yaml
+name: mixte-kodak
+author: ""
+source:
+  codec: balle2017-c3-n128-tkt
+  checkpoint: outputs/checkpoints/bls2017_c3_N128_lambda1024_run9.pt
+tile: [3, 64, 64]
+recipes: [fp32, int8, mixte]
+ptq:
+  bits: 8
+  clipping: MAX
+  per_channel: false
+  n_calibration: 32
+  calibration_set: lune-analogue-dfki
+  seed: 0
+evaluate:
+  eval_dir: data/kodak
+  n_images: 24
+  indicative_series: true
+  indicative_reason: "checkpoints d'entraînements hétérogènes, en attendant la série N=64"
+export:
+  generate: true
+  compile: true

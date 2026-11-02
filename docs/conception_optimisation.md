@@ -578,7 +578,7 @@ Les chiffres du Cortex-A9 sont des ordres de grandeur tirés de sa fréquence et
 de la carte PYNQ-Z2), **sans aucune mesure** : caches et accès mémoire peuvent les dégrader fortement.
 
 **Lecture honnête : tel quel, le PL serait environ 7 fois plus lent que le processeur scalaire.** Pour le rattraper à
-100 MHz, il faudrait au moins 7 multiplications par 4,5 cycles (une multiplication utile à chaque cycle ou presque). C'est
+100 MHz, il faudrait environ 1,6 multiplication par cycle, contre 0,22 aujourd'hui. C'est
 l'enjeu de cet axe : un accélérateur séquentiel n'accélère rien. La compilation ARM de l'export C++ doit fournir la vraie
 référence.
 

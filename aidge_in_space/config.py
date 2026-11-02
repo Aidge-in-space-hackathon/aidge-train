@@ -22,3 +22,7 @@ BENCH_DIR = OUT_DIR / "bench"
 RUNS_DIR = Path(os.environ.get("AIDGE_RUNS_DIR", OUT_DIR / "runs"))
 ## Jeux d'images d'entraînement, un sous-dossier par jeu (exclus des jeux du banc par images.datasets()).
 TRAIN_DIR = DATA_DIR / "train"
+## Résultats des optimisations Aidge, un sous-dossier par job.
+OPTIM_DIR = OUT_DIR / "optim"
+## Capacité BRAM du Zynq-7020 retenue : 140 BRAM36, environ 630 Ko, soit environ 615 Kio.
+BRAM_BYTES = 630_000

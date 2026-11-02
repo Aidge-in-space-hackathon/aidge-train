@@ -40,8 +40,8 @@ CUSTOM_PRESET = "Personnalisé"
 PRESET_CHOICES = {"Test rapide (quelques minutes)": ("test_rapide", [2048]),
                   "Standard (plusieurs heures, GPU conseillé)": ("standard", [512, 1024, 2048, 4096]),
                   CUSTOM_PRESET: (None, None)}
-## Capacité BRAM du Zynq-7020 retenue : 140 BRAM36, environ 630 Ko, soit environ 615 Kio.
-BRAM_BYTES = 630_000
+## Capacité BRAM du Zynq-7020 retenue (voir config.BRAM_BYTES).
+BRAM_BYTES = config.BRAM_BYTES
 ## Taille d'image pour l'estimation des MAC par pixel.
 ESTIMATE_SHAPE = (256, 256)
 ## Côté minimal conseillé d'une image d'entraînement (avertissement en dessous).
