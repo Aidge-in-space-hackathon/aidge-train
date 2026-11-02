@@ -5,7 +5,7 @@ format de `report.json`, schéma de la table `jobs`, cycle de vie d'une variante
 compte rendu au lieu de changer le contrat en silence. Conventions : voir `CLAUDE.md` et le préambule de
 `docs/conception_entrainement.md`.
 
-Statut : **validée le 2 novembre 2026**, implémentation en cours. Le spike LoCod et Bambu est dans `locod/spike/`, avec ses résultats.
+Statut : **validée le 2 novembre 2026**, implémentée. Le spike LoCod et Bambu est dans `locod/spike/`, avec ses résultats.
 
 ---
 
@@ -242,8 +242,8 @@ configs/optim/*.yaml                exemples
 ```
 
 Modules modifiés : `jobs.py`, `worker.py`, `app.py`, `ui_training.py` (colonne `type`, jobs sans courbes),
-`codecs/base.py` (deux points d'extension, § 8), `config.py` (`OPTIM_DIR`, et `BRAM_BYTES` déplacé depuis
-`ui_training.py`, qui le réimporte), `Dockerfile` (g++, selon la décision en attente).
+`codecs/base.py` (points d'extension, § 8), `config.py` (`OPTIM_DIR`, et `BRAM_BYTES` déplacé depuis
+`ui_training.py`, qui le réimporte), `Dockerfile` (g++).
 
 Correspondance des noms : « Comparer » et « Benchmark » dans la demande initiale sont les onglets actuels
 **3. Tester** et **4. Valider** ; « Suivi » est **2. Suivre**. `CLAUDE.md` indique que le dossier `configs/` a été
@@ -313,9 +313,11 @@ Point d'entrée testable : `main(argv=None) -> int`. Sortie par `os._exit` aprè
 | 3 | `EXIT_CANCELLED` | annulation dans la base |
 | 4 | `EXIT_STOPPED` | fin de stdin ou signal |
 
-L'arrêt se vérifie entre les étapes, avec le `StopWatcher` de `train.py`. Une compilation en cours est interrompue
-en tuant g++. Il n'y a pas de reprise à mi-chemin : `requeue` recommence le job dans un dossier temporaire, renommé
-seulement à la fin.
+L'arrêt se vérifie entre les étapes, avec le `StopWatcher` de `train.py`. Une compilation g++ en cours est interrompue
+en tuant g++ ; les autres étapes longues (quantification, export, compilation du C) vont jusqu'au bout, ou le worker tue le
+processus après `STOP_TIMEOUT_S`. Il n'y a pas de reprise à mi-chemin : `requeue` recommence le job dans un dossier
+temporaire, renommé seulement à la fin. Le worker retire ce dossier à la fin du job, même tué, et un nouveau départ retire
+celui d'une tentative précédente. `--out` refuse un dossier qui contient autre chose qu'un résultat d'optimisation.
 
 ### Étapes et progression
 
@@ -430,7 +432,7 @@ cette base. On le documente sans le contourner, dans `docs/deploiement.md`.
 
 - `Job` gagne `kind: str`. `submit(config, kind="train")` : les colonnes `in_ch`, `n`, `lmbda`, `steps` restent
   obligatoires et valent, pour un job d'optimisation, les valeurs du checkpoint source et le nombre d'étapes.
-- `worker.py` : `JOB_CMDS = {"train": TRAIN_CMD, "optim": OPTIM_CMD}`. Le paramètre `cmd` de `run_worker` reste
+- `worker.py` : `job_command(job, cmd)` choisit `TRAIN_CMD` ou `OPTIM_CMD`. Le paramètre `cmd` de `run_worker` reste
   prioritaire pour les tests. Le journal garde le nom `train.log`.
 - Onglet Suivre : colonne `type` dans `jobs_table`. `_curves` renvoie `None` pour un job `optim`, dont le détail
   affiche le résumé de `report.json`. `duplicate_config` refuse un job `optim`.
@@ -457,8 +459,8 @@ running -> failed / cancelled / interrupted -> requeue : recommence le job
 - hérite de `LearnedCodec` : décodeur et modèle d'entropie du checkpoint source, encodeur reconstruit à la première
   utilisation et gardé dans le cache LRU, `backends = ("aidge",)`.
 
-`LearnedCodec.run` gagne deux points d'extension, au comportement inchangé pour les autres codecs :
-`_analyze(level, xp, backend)` et `_synthesize(model, y_hat)`. La variante découpe l'image complétée en tuiles,
+`LearnedCodec.run` gagne des points d'extension, au comportement inchangé pour les autres codecs :
+`_analysis_runner` et `_synthesize(model, y_hat)`. La variante découpe l'image complétée en tuiles,
 encode chacune, assemble les latents **en un seul flux** (les temps et le débit restent comparables), puis décode
 tuile par tuile.
 
@@ -607,8 +609,8 @@ si la structure change.
 - **Coût débit-distorsion : 4 images, un seul checkpoint, débit estimé.** Les chiffres réels sortiront du pipeline.
 - **BD-rate** : la série actuelle n'a pas le même entraînement (1 960 à 62 995 pas). Le chiffre sera indicatif, signalé comme
   tel, en attendant la série N=64.
-- **Déterminisme** vérifié dans un même processus seulement. Le pipeline le contrôlera entre deux processus, et
-  l'empreinte du checkpoint sera vérifiée au rechargement.
+- **Déterminisme** : deux processus donnent la même empreinte des producteurs de la recette mixte (contrôle ponctuel sur le
+  checkpoint λ=1024, pas à chaque job : le pipeline ne le refait pas). L'empreinte du checkpoint est vérifiée au rechargement.
 - **Temps** : les mesures du binaire (70 à 230 ms par tuile 64) ont été prises sur un PC chargé. Elles sont
   indicatives, et un job en cours fausse aussi le banc d'essai.
 - **Calibration** : avec 16 tuiles 64 x 64, l'erreur brute atteint 5 à 9 sur quelques valeurs. D'où le défaut de 32

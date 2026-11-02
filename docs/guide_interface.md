@@ -114,7 +114,7 @@ Faites toujours un test rapide avant un long entraînement : il vérifie que tou
 
 L'onglet **2. Suivre** se rafraîchit tout seul toutes les 5 secondes.
 
-- **Le bandeau en haut** dit si un worker est actif. Si non, voir [section 7](#7-quand-quelque-chose-ne-va-pas).
+- **Le bandeau en haut** dit si un worker est actif. Si non, voir [section 8](#8-quand-quelque-chose-ne-va-pas).
 - **Le tableau « Entraînements »** liste les jobs (un job = un entraînement pour une valeur de λ), du plus récent au plus ancien, avec leur statut, leur progression en pourcentage et le temps restant estimé.
 - **Le menu « Entraînement à examiner »** affiche en dessous un résumé des réglages et les courbes. La section **Journal** contient les 50 dernières lignes du journal.
 
@@ -160,7 +160,7 @@ Sélectionnez d'abord le job dans le menu « Entraînement à examiner ».
 
 - **Télécharger le modèle** : sous les courbes, la zone « Modèle entraîné » propose le fichier `.pt` du job choisi dès que son premier point de sauvegarde existe. Pour un job en cours, c'est le dernier point de sauvegarde, pas le modèle final : attendez le statut Terminé pour le modèle complet.
 - **Annuler** : ouvrez la section « Annuler cet entraînement », cochez « Je confirme l'annulation », puis cliquez sur **Annuler**. Un job en attente est annulé aussitôt. Un job en cours sauvegarde son avancement puis s'arrête dans les secondes qui suivent.
-- **Relancer** : disponible pour un job En échec, Annulé ou Interrompu. Le job repart dans la file et **reprend à son dernier point de sauvegarde**, sans refaire ce qui est déjà fait. Si le job échoue de nouveau, lisez le message d'erreur dans le résumé.
+- **Relancer** : disponible pour un job En échec, Annulé ou Interrompu. Le job repart dans la file et **reprend à son dernier point de sauvegarde**, sans refaire ce qui est déjà fait. Une optimisation Aidge, elle, recommence depuis le début. Si le job échoue de nouveau, lisez le message d'erreur dans le résumé.
 - **Dupliquer la configuration** : copie les réglages du job dans l'onglet 1. Entraîner (le nom reçoit « (copie) »), pour en lancer un nouveau en changeant une valeur. Si le jeu d'images d'origine n'existe plus, un avertissement vous demande d'en choisir un autre.
 
 ## 6. Tester et valider le modèle (onglets 3 et 4)
