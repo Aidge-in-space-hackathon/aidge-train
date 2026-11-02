@@ -1,4 +1,4 @@
-"""! @brief Interface Gradio de la plateforme : entraîner, suivre, tester et valider un modèle.
+"""! @brief Interface Gradio de la plateforme : entraîner, suivre, tester, valider et optimiser un modèle.
 
 Lancement : @c python -m aidge_in_space.app puis http://127.0.0.1:7860. Chaque action est aussi
 exposée par l'API Gradio (api_name : test_model, benchmark, profile, compare_encoders,
@@ -17,7 +17,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from PIL import Image
 
-from . import backends, bench, config, profiling, ui_style, ui_training
+from . import backends, bench, config, profiling, ui_optim, ui_style, ui_training
 from .codecs import LearnedCodec, all_codecs, closest_level, discover, get
 from .images import MODE_LABELS, convert, datasets, download_kodak, load_image
 from .metrics import MS_SSIM_MIN_SIDE
@@ -732,6 +732,9 @@ def build():
                 p_go.click(profile, [p_codec, p_level, p_size], [p_md, p_table, p_fig], api_name="profile")
                 p_all.click(compare_encoders, [p_size, mode], p_table, api_name="compare_encoders")
                 p_check.click(check_backends, [p_codec, p_level, p_size], p_check_table, api_name="check_backends")
+
+            # ------------------------------------------------ Optimisation Aidge
+            ui_optim.build_tab()
 
         # ------------------------------------------------ Aide
         with gr.Accordion("Aide : mesures, codecs disponibles, ajout d'un algorithme", open=False):

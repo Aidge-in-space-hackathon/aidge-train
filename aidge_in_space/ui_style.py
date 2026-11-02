@@ -79,13 +79,14 @@ CSS = """
 .main-action { min-height: 48px; font-size: 1rem !important; }
 """
 
-## Les quatre étapes affichées dans l'en-tête : (nom de l'onglet, ce qu'on y fait).
+## Les étapes affichées dans l'en-tête : (nom de l'onglet, ce qu'on y fait).
 STEPS = (("1. Entraîner", "créer un modèle"), ("2. Suivre", "voir où il en est"),
-         ("3. Tester", "le juger sur une image"), ("4. Valider", "le mesurer face à JPEG"))
+         ("3. Tester", "le juger sur une image"), ("4. Valider", "le mesurer face à JPEG"),
+         ("5. Optimisation Aidge", "le préparer pour la carte"))
 
 
 def header():
-    """! @brief Ajoute l'en-tête de la page : le but de la plateforme et les quatre étapes."""
+    """! @brief Ajoute l'en-tête de la page : le but de la plateforme et les étapes."""
     steps = "".join(f"<li><b>{name}</b> : {what}</li>" for name, what in STEPS)
     gr.HTML('<div class="hero"><div class="eyebrow">AIDGE IN SPACE</div>'
             "<h1>Plateforme de compression d'images</h1>"

@@ -14,6 +14,11 @@ ENV PYTHONDONTWRITEBYTECODE=1 \
     PIP_NO_CACHE_DIR=1 \
     PIP_DISABLE_PIP_VERSION_CHECK=1
 
+# g++ compile et vérifie les exports C de l'onglet Optimisation Aidge (sans CMake : voir aidge_in_space/optim/export.py)
+RUN apt-get update \
+ && apt-get install -y --no-install-recommends g++ \
+ && rm -rf /var/lib/apt/lists/*
+
 COPY requirements.txt /tmp/requirements.txt
 RUN pip install torch --index-url "${TORCH_INDEX}" \
  && pip install -r /tmp/requirements.txt
