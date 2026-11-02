@@ -20,6 +20,10 @@ updates:
       # gradio 6.31 exige pillow<13 : à retirer quand gradio l'accepte
       - dependency-name: pillow
         versions: [">=13"]
+      # L'index cu126 de l'image CUDA s'arrête à 2.14.1 (la CI, en image CPU, ne le voit pas) :
+      # à retirer quand cet index propose une version plus récente
+      - dependency-name: torch
+        versions: [">=2.15"]
   - package-ecosystem: github-actions
     directory: /
     schedule:
