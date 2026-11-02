@@ -83,7 +83,7 @@ Ce qu'il faut savoir :
 - **Tout ou rien** : si l'envoi échoue (archive illisible, trop gros, aucune image valide), rien n'est ajouté au jeu. Corrigez et recommencez.
 - Les images illisibles sont écartées avec un message, et le reste de l'envoi est conservé.
 
-Le menu « Jeu d'images » liste vos jeux avec leur nombre d'images. « Aperçu du jeu » affiche quelques images du jeu choisi, pour vérifier que le dépôt est correct.
+Le menu « Jeu d'images » liste vos jeux avec leur nombre d'images. L'aperçu situé dessous affiche quelques images du jeu choisi, pour vérifier que le dépôt est correct.
 
 ## 3. Lancer un entraînement (onglet 1. Entraîner)
 
@@ -164,7 +164,7 @@ Sélectionnez d'abord le job dans le menu « Entraînement à examiner ».
 
 ## 6. Tester et valider le modèle (onglets 3 et 4)
 
-**Tester : une image, pour voir le résultat.** Dans l'onglet 2. Suivre, cliquez sur **Tester ce modèle** : l'onglet **3. Tester** s'ouvre sur le modèle et le niveau de cet entraînement. Vous pouvez aussi les choisir vous-même dans le menu. Choisissez une image ou importez la vôtre, puis cliquez sur **Tester**. Vous obtenez l'original, l'image reconstruite, l'erreur amplifiée quatre fois, un zoom et les mesures. Les codecs cochés dans « Comparer à » (JPEG et JPEG 2000 par défaut) sont pris au débit le plus proche de celui du modèle. Le mode d'image est celui du modèle : il n'y a rien à régler.
+**Tester : une image, pour voir le résultat.** Dans l'onglet 2. Suivre, cliquez sur **Tester ce modèle** : l'onglet **3. Tester** s'ouvre sur le modèle et le niveau de cet entraînement. Vous pouvez aussi les choisir vous-même dans le menu. Choisissez une image ou importez la vôtre, puis cliquez sur **Tester**. Vous obtenez l'original, l'image reconstruite, l'erreur amplifiée quatre fois, un zoom et les mesures. Les codecs cochés dans la section repliable « Comparer à » (JPEG et JPEG 2000 par défaut) sont pris au débit le plus proche de celui du modèle. Le mode d'image est celui du modèle : il n'y a rien à régler.
 
 **Valider : un jeu d'images, pour conclure.** Dans l'onglet **4. Valider**, cochez les modèles et les références, choisissez le jeu et le nombre d'images, puis cliquez sur **Lancer la campagne**. Vous obtenez les courbes débit-qualité et le BD-rate : un BD-rate négatif signifie que le modèle utilise moins de bits que la référence à qualité égale. Il faut au moins 4 points par courbe, donc au moins 4 valeurs de λ pour un modèle entraîné ici. La section « Détails de la campagne » contient la référence du BD-rate, les temps d'encodage et le CSV.
 
