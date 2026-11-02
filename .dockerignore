@@ -13,6 +13,7 @@ data
 outputs
 docs
 Ressources
+locod
 
 # Réglages locaux (secrets, adresses), jamais versionnés ni copiés
 .env

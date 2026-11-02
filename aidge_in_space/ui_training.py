@@ -23,10 +23,11 @@ import pandas as pd
 from matplotlib.figure import Figure
 from PIL import Image
 
-from . import config
+from . import config, ui_style
 from .dataset_catalog import CATALOG, download_archive
 from .images import IMAGE_EXTS, MODE_LABELS, list_images
 from .jobs import STATUS_LABELS, JobStore
+from .optim import results
 from .training.imaging import to_8bit
 from .training.config import PRESETS, TrainConfig, schedule_for
 
@@ -40,8 +41,8 @@ CUSTOM_PRESET = "Personnalisé"
 PRESET_CHOICES = {"Test rapide (quelques minutes)": ("test_rapide", [2048]),
                   "Standard (plusieurs heures, GPU conseillé)": ("standard", [512, 1024, 2048, 4096]),
                   CUSTOM_PRESET: (None, None)}
-## Capacité BRAM du Zynq-7020 retenue : 140 BRAM36, environ 630 Ko, soit environ 615 Kio.
-BRAM_BYTES = 630_000
+## Capacité BRAM du Zynq-7020 retenue (voir config.BRAM_BYTES).
+BRAM_BYTES = config.BRAM_BYTES
 ## Taille d'image pour l'estimation des MAC par pixel.
 ESTIMATE_SHAPE = (256, 256)
 ## Côté minimal conseillé d'une image d'entraînement (avertissement en dessous).
@@ -60,7 +61,9 @@ REFRESH_S = 5
 ## Nombre de vignettes montrées par jeu d'images.
 N_SAMPLES = 6
 ## Colonnes du tableau des jobs.
-TABLE_COLUMNS = ["n°", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)", "temps restant", "créé le"]
+TABLE_COLUMNS = ["n°", "type", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)", "temps restant", "créé le"]
+## Libellés des types de jobs.
+KIND_LABELS = {"train": "Entraînement", "optim": "Aidge"}
 ## Octets lus en fin de train.log pour en extraire les dernières lignes.
 LOG_TAIL_BYTES = 65536
 ## Nombre maximal de messages d'avertissement affichés en fenêtre après un envoi.
@@ -697,7 +700,7 @@ def jobs_table(store, now=None):
     for job in visible_jobs(store):
         train = store.metrics(job.id, "train") if job.status == "running" else []
         pct, eta = job_progress(job, train, now)
-        rows.append({"n°": job.id, "nom": job.name, "auteur": job.author, "statut": _status_label(job),
+        rows.append({"n°": job.id, "type": KIND_LABELS.get(job.kind, job.kind), "nom": job.name, "auteur": job.author, "statut": _status_label(job),
                      "λ": _lmbda_text(job.lmbda), "N": job.N, "mode": "gris" if job.in_ch == 1 else "rgb",
                      "progression (%)": pct, "temps restant": format_duration(eta),
                      "créé le": time.strftime("%Y-%m-%d %H:%M", time.localtime(job.created_at))})
@@ -706,7 +709,7 @@ def jobs_table(store, now=None):
 
 def job_choices(store):
     """! @brief Jobs pour un menu : couples (« n°12 · nom · λ=2048 · En cours », identifiant)."""
-    return [(f"n°{j.id} · {j.name} · λ={_lmbda_text(j.lmbda)} · {_status_label(j)}", j.id)
+    return [(f"n°{j.id} · {'Aidge · ' if j.kind == 'optim' else ''}{j.name} · λ={_lmbda_text(j.lmbda)} · {_status_label(j)}", j.id)
             for j in visible_jobs(store)]
 
 
@@ -753,8 +756,22 @@ def _curves(metrics):
     return fig
 
 
+def _optim_summary(job):
+    """! @brief Synthèse Markdown d'une optimisation Aidge : statut, source, résultat par recette, erreur."""
+    source = job.config.get("source", {})
+    lines = [f"**n°{job.id} · {job.name}** ({job.author or 'auteur inconnu'}) : **{_status_label(job)}**, "
+             f"étape {job.last_step} sur {job.steps}.",
+             f"- Optimisation Aidge de `{source.get('checkpoint', '?')}`, N={job.N}, λ={_lmbda_text(job.lmbda)}.",
+             results.summary_markdown(results.report_for_job(job.id))]
+    if job.error:
+        lines.append(f"- Message d'erreur :\n\n```\n{job.error}\n```")
+    return "\n".join(lines)
+
+
 def _summary(job):
     """! @brief Synthèse Markdown d'un job : statut, réglages, checkpoint, erreur."""
+    if job.kind == "optim":
+        return _optim_summary(job)
     c = job.config
     lines = [f"**n°{job.id} · {job.name}** ({job.author or 'auteur inconnu'}) : **{_status_label(job)}**, "
              f"pas {job.last_step} sur {job.steps}.",
@@ -783,7 +800,7 @@ def job_details(store, job_id, n_log_lines=50):
         return None, "", "Sélectionnez un job."
     job = store.get(int(job_id))
     metrics = store.metrics(job.id)
-    return _curves(metrics), _log_tail(store.job_dir(job.id) / "train.log", n_log_lines), _summary(job)
+    return None if job.kind == "optim" else _curves(metrics), _log_tail(store.job_dir(job.id) / "train.log", n_log_lines), _summary(job)
 
 
 def job_model_file(store, job_id):
@@ -837,8 +854,11 @@ def duplicate_config(store, job_id):
     @return Dictionnaire @c name (« nom (copie) »), @c author, @c dataset, @c mode, @c preset, @c lambdas,
             @c N, @c gdn_last, @c steps, @c batch_size, @c lr, @c crop, @c n_patches, @c seed.
     @throws KeyError si le job est inconnu.
+    @throws ValueError si le job est une optimisation Aidge : ce formulaire ne concerne que les entraînements.
     """
     job = store.get(int(job_id))
+    if job.kind == "optim":
+        raise ValueError("Ce job est une optimisation Aidge : réglez-la dans l'onglet 5.")
     c = job.config
     lam = job.lmbda
     return {"name": f"{job.name} (copie)", "author": job.author, "dataset": Path(c.get("train_dir", "")).name,
@@ -851,12 +871,12 @@ def duplicate_config(store, job_id):
 def worker_banner(store):
     """! @brief Message sur la présence d'un worker, avec la marche à suivre s'il n'y en a pas."""
     if store.worker_alive():
-        msg = "**Worker actif.** Les entraînements en file sont pris en charge."
+        msg = "🟢 **Worker actif.** Les entraînements en file sont pris en charge."
     else:
-        msg = ("**Aucun worker actif : les entraînements restent en attente.** Double-cliquez sur "
+        msg = ("🔴 **Aucun worker actif : les entraînements restent en attente.** Double-cliquez sur "
                "`scripts\\lancer_plateforme.bat`, ou lancez `docker compose up worker`.")
     if any(j.status == "running" for j in visible_jobs(store)):
-        msg += ("\n\nUn entraînement est en cours sur cette machine : les temps mesurés dans les onglets Tester "
+        msg += ("\n\n⚠️ Un entraînement est en cours sur cette machine : les temps mesurés dans les onglets Tester "
                 "et Valider seront faussés tant qu'il tourne.")
     return msg
 
@@ -998,81 +1018,102 @@ def build_tabs(store=None, tabs=None):
 
     # ------------------------------------------------ Entraîner
     with gr.Tab("1. Entraîner", id="entrainement") as tab_train:
-        gr.Markdown("Partez d'un préréglage, modifiez ce que vous voulez, puis cliquez sur **Lancer "
-                    "l'entraînement**. Un modèle est entraîné pour chaque valeur de λ cochée.")
+        ui_style.intro("**Apprenez à un modèle à compresser des images.** Partez d'un préréglage, choisissez vos images, "
+                       "ajustez si besoin, puis lancez. Un modèle est entraîné pour chaque valeur de λ cochée.",
+                       "l'onglet **2. Suivre** s'ouvre tout seul pour montrer la progression.")
         with gr.Row():
             with gr.Column(scale=1, min_width=320):
-                t_preset = gr.Radio(list(PRESET_CHOICES), value=next(iter(PRESET_CHOICES)), label="Préréglage",
-                                    info="Remplit les réglages ; vous pouvez ensuite les modifier.")
-                with gr.Row():
-                    t_name = gr.Textbox(label="Nom du run", placeholder="lune-essai-1",
-                                        info="Regroupe les modèles de cet entraînement.")
-                    t_author = gr.Textbox(label="Auteur", info="Facultatif : votre prénom.")
-                t_dataset = gr.Dropdown(ds_choices, value=ds_names[0] if ds_names else None, label="Jeu d'images",
-                                        info="Les images avec lesquelles le modèle apprend.")
-                d_gallery = gr.Gallery(dataset_samples(ds_names[0]) if ds_names else [], label="Aperçu du jeu",
-                                       columns=6, height=130, object_fit="contain")
-                with gr.Accordion("Ajouter des images", open=not ds_names):
-                    c_pick = gr.Dropdown(catalog_choices(), value=next(iter(CATALOG)),
-                                         label="Télécharger un jeu prêt à l'emploi")
-                    c_details = gr.Markdown(catalog_details(next(iter(CATALOG))))
-                    c_go = gr.Button("Télécharger")
-                    c_status = gr.Markdown()
-                    d_name = gr.Textbox(label="… ou créer un jeu : nom", info="Un nom court, par exemple « lune-lro ». "
-                                        "Si le jeu existe déjà, les images y sont ajoutées.")
-                    d_files = gr.File(label="Images ou archive zip", file_count="multiple",
-                                      file_types=sorted(IMAGE_EXTS) + [".zip"])
-                    d_go = gr.Button("Créer le jeu")
-                    d_status = gr.Markdown()
+                with ui_style.card("Point de départ"):
+                    t_preset = gr.Radio(list(PRESET_CHOICES), value=next(iter(PRESET_CHOICES)), label="Préréglage",
+                                        info="Remplit les réglages ; vous pouvez ensuite les modifier.")
+                    with gr.Row():
+                        t_name = gr.Textbox(label="Nom du run", placeholder="lune-essai-1",
+                                            info="Regroupe les modèles de cet entraînement.")
+                        t_author = gr.Textbox(label="Auteur", info="Facultatif : votre prénom.")
+                with ui_style.card("Images d'entraînement", "Les images avec lesquelles le modèle apprend."):
+                    t_dataset = gr.Dropdown(ds_choices, value=ds_names[0] if ds_names else None, label="Jeu d'images")
+                    d_gallery = gr.Gallery(dataset_samples(ds_names[0]) if ds_names else [], label="Aperçu du jeu",
+                                           show_label=False, columns=6, height=130, object_fit="contain")
+                    with gr.Accordion("Ajouter des images", open=not ds_names):
+                        c_pick = gr.Dropdown(catalog_choices(), value=next(iter(CATALOG)),
+                                             label="Télécharger un jeu prêt à l'emploi")
+                        c_details = gr.Markdown(catalog_details(next(iter(CATALOG))))
+                        c_go = gr.Button("Télécharger")
+                        c_status = gr.Markdown()
+                        d_name = gr.Textbox(label="… ou créer un jeu : nom",
+                                            info="Un nom court, par exemple « lune-lro ». "
+                                            "Si le jeu existe déjà, les images y sont ajoutées.")
+                        d_files = gr.File(label="Images ou archive zip", file_count="multiple",
+                                          file_types=sorted(IMAGE_EXTS) + [".zip"])
+                        d_go = gr.Button("Créer le jeu")
+                        d_status = gr.Markdown()
             with gr.Column(scale=1, min_width=320):
-                t_mode = gr.Radio([(v, k) for k, v in MODE_LABELS.items()], value="gris", label="Mode")
-                t_lambdas = gr.CheckboxGroup(LAMBDA_CHOICES, value=first["lambdas"], label="Valeurs de λ",
-                                             info="Grand λ : meilleure qualité, plus de bits.")
-                t_steps = gr.Number(value=first["steps"], precision=0, minimum=1, label="Nombre de pas",
-                                    info="Durée de l'entraînement.")
-                t_N = gr.Dropdown(N_CHOICES, value=first["N"], label="Largeur du modèle (N)",
-                                  info="Plus N est grand, meilleur est le modèle, mais plus il est lourd.")
-                with gr.Accordion("Réglages avancés", open=False):
-                    t_gdn = gr.Checkbox(value=first["gdn_last"], label="GDN finale",
-                                        info="Comme dans l'article ; décochez pour une variante plus légère.")
-                    t_batch = gr.Number(value=first["batch_size"], precision=0, minimum=1, label="Taille du lot",
-                                        info="Nombre de morceaux d'image traités ensemble.")
-                    t_lr = gr.Number(value=first["lr"], minimum=1e-7, maximum=0.01, label="Pas d'apprentissage",
-                                     info="Vitesse d'apprentissage (1e-4 convient en général).")
-                    t_crop = gr.Number(value=first["crop"], precision=0, minimum=32, label="Taille des morceaux",
-                                       info="Côté des morceaux d'image, multiple de 16.")
-                    t_patches = gr.Number(value=first["n_patches"], precision=0, minimum=1,
-                                          label="Nombre de morceaux gardés en mémoire",
-                                          info="Plus il est grand, plus la mémoire utilisée augmente.")
-                    t_seed = gr.Number(value=first["seed"], precision=0, minimum=0, label="Graine aléatoire",
-                                       info="Pour refaire exactement le même entraînement.")
-                t_estimate = gr.Markdown(_initial_estimate(first))
-                t_go = gr.Button("Lancer l'entraînement", variant="primary")
+                with ui_style.card("Réglages du modèle"):
+                    t_mode = gr.Radio([(v, k) for k, v in MODE_LABELS.items()], value="gris", label="Mode",
+                                      info="Le type d'images que le modèle saura compresser.")
+                    t_lambdas = gr.CheckboxGroup(LAMBDA_CHOICES, value=first["lambdas"], label="Valeurs de λ",
+                                                 info="Le compromis qualité/taille : grand λ donne une meilleure "
+                                                 "qualité, mais plus de bits.")
+                    t_steps = gr.Number(value=first["steps"], precision=0, minimum=1, label="Nombre de pas",
+                                        info="Durée de l'entraînement : plus de pas, plus de temps de calcul.")
+                    t_N = gr.Dropdown(N_CHOICES, value=first["N"], label="Largeur du modèle (N)",
+                                      info="Plus N est grand, meilleur est le modèle, mais plus il est lourd.")
+                    with gr.Accordion("Réglages avancés", open=False):
+                        t_gdn = gr.Checkbox(value=first["gdn_last"], label="GDN finale",
+                                            info="Comme dans l'article ; décochez pour une variante plus légère.")
+                        t_batch = gr.Number(value=first["batch_size"], precision=0, minimum=1, label="Taille du lot",
+                                            info="Nombre de morceaux d'image traités ensemble.")
+                        t_lr = gr.Number(value=first["lr"], minimum=1e-7, maximum=0.01, label="Pas d'apprentissage",
+                                         info="Vitesse d'apprentissage (1e-4 convient en général).")
+                        t_crop = gr.Number(value=first["crop"], precision=0, minimum=32, label="Taille des morceaux",
+                                           info="Côté des morceaux d'image, multiple de 16.")
+                        t_patches = gr.Number(value=first["n_patches"], precision=0, minimum=1,
+                                              label="Nombre de morceaux gardés en mémoire",
+                                              info="Plus il est grand, plus la mémoire utilisée augmente.")
+                        t_seed = gr.Number(value=first["seed"], precision=0, minimum=0, label="Graine aléatoire",
+                                           info="Pour refaire exactement le même entraînement.")
+                with ui_style.card("Coût estimé à bord", "Ce que l'encodeur demandera à la carte. MAC : opérations de "
+                                   "calcul, moins il y en a, plus il est léger."):
+                    t_estimate = gr.Markdown(_initial_estimate(first))
+                t_go = gr.Button("Lancer l'entraînement", variant="primary", elem_classes="main-action")
                 t_result = gr.Markdown()
     form = [t_preset, t_name, t_author, t_dataset, t_mode, t_N, t_gdn, t_lambdas, t_steps, t_batch, t_lr,
             t_crop, t_patches, t_seed]
 
     # ------------------------------------------------ Suivre
     with gr.Tab("2. Suivre", id="suivi"):
-        s_banner = gr.Markdown(worker_banner(store))
+        ui_style.intro("**Regardez où en sont les entraînements.** Ils tournent en arrière-plan : vous pouvez fermer "
+                       "cette page sans les interrompre. Elle se met à jour toute seule.",
+                       "une fois un entraînement terminé, cliquez sur **Tester ce modèle**.")
+        s_banner = gr.Markdown(worker_banner(store), elem_classes="status-banner")
         s_table = gr.Dataframe(jobs_table(store), label="Entraînements", interactive=False, wrap=True)
-        s_pick = gr.Dropdown(jobs0, value=jobs0[0][1] if jobs0 else None, label="Entraînement à examiner")
-        s_summary = gr.Markdown("Sélectionnez un entraînement.")
-        s_plot = gr.Plot(label="Courbes")
-        s_file = gr.File(label="Modèle entraîné (checkpoint .pt, à télécharger)", interactive=False,
-                         value=job_model_file(store, jobs0[0][1] if jobs0 else None))
         with gr.Row():
-            s_test = gr.Button("Tester ce modèle", variant="primary")
-            s_requeue = gr.Button("Relancer")
-            s_dup = gr.Button("Dupliquer la configuration")
-        s_msg = gr.Markdown()
-        with gr.Accordion("Journal", open=False):
-            s_log = gr.Textbox(label="Fin du journal (50 dernières lignes)", lines=12, max_lines=12,
-                               interactive=False)
-        with gr.Accordion("Annuler cet entraînement", open=False):
-            with gr.Row():
-                s_confirm = gr.Checkbox(label="Je confirme l'annulation")
-                s_cancel = gr.Button("Annuler", variant="stop")
+            with gr.Column(scale=1, min_width=320):
+                with ui_style.card("Entraînement choisi"):
+                    s_pick = gr.Dropdown(jobs0, value=jobs0[0][1] if jobs0 else None, label="Entraînement à examiner")
+                    s_summary = gr.Markdown("Sélectionnez un entraînement.")
+                    s_test = gr.Button("Tester ce modèle", variant="primary")
+                    with gr.Row():
+                        s_requeue = gr.Button("Relancer")
+                        s_dup = gr.Button("Dupliquer la configuration")
+                    ui_style.hint("**Relancer** reprend à la dernière sauvegarde un entraînement échoué, annulé ou "
+                                  "interrompu. **Dupliquer** recopie ses réglages dans l'onglet Entraîner.")
+                    s_msg = gr.Markdown()
+                    ui_style.hint("**Modèle entraîné** (checkpoint .pt, à télécharger) :")
+                    s_file = gr.File(label="Modèle entraîné (checkpoint .pt, à télécharger)", show_label=False,
+                                     interactive=False, elem_classes="compact-file",
+                                     value=job_model_file(store, jobs0[0][1] if jobs0 else None))
+                    with gr.Accordion("Annuler cet entraînement", open=False):
+                        with gr.Row():
+                            s_confirm = gr.Checkbox(label="Je confirme l'annulation")
+                            s_cancel = gr.Button("Annuler", variant="stop")
+            with gr.Column(scale=2, min_width=320):
+                with ui_style.card("Courbes", "**Perte** : doit descendre. **Débit** : bits par pixel, plus bas signifie "
+                                   "plus compressé. **PSNR** : qualité de l'image, plus haut est meilleur."):
+                    s_plot = gr.Plot(label="Courbes", show_label=False)
+                with gr.Accordion("Journal", open=False):
+                    s_log = gr.Textbox(label="Fin du journal (50 dernières lignes)", lines=12, max_lines=12,
+                                       interactive=False)
         s_seen = gr.State(None)
         s_choices = gr.State(None)
         timer = gr.Timer(REFRESH_S)
@@ -1190,8 +1231,8 @@ def build_tabs(store=None, tabs=None):
             raise gr.Error("Sélectionnez d'abord un entraînement.")
         try:
             vals = duplicate_config(store, job_id)
-        except KeyError:
-            raise gr.Error("Ce job n'existe plus.") from None
+        except (KeyError, ValueError) as e:
+            raise gr.Error(str(e.args[0]) if isinstance(e, ValueError) else "Ce job n'existe plus.") from None
         names = ds_names_now()
         if vals["dataset"] not in names:
             gr.Warning(f"Le jeu d'images « {vals['dataset']} » n'existe plus : choisissez-en un autre.")

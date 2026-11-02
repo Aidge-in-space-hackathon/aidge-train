@@ -1,0 +1,14 @@
+# Essai rapide : peu d'images, pas d'export. Adapter le checkpoint et le jeu de calibration.
+name: essai-rapide
+source:
+  checkpoint: outputs/checkpoints/bls2017_c3_N128_lambda1024_run9.pt
+tile: [3, 64, 64]
+recipes: [fp32, mixte]
+ptq:
+  clipping: MSE
+  n_calibration: 8
+  calibration_set: lune-analogue-dfki
+evaluate:
+  n_images: 2
+export:
+  generate: false

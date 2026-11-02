@@ -198,6 +198,33 @@ class LearnedCodec(Codec):
             m._ais_encoder = freeze(m.g_a)
         return m._ais_encoder
 
+    def _pad_multiple(self, model):
+        """! @brief Multiple auquel l'image est complétée avant l'encodeur.
+
+        @param model  Modèle du niveau.
+        @return Côté ; par défaut @c model.pad_multiple.
+        """
+        return model.pad_multiple
+
+    def _analysis_runner(self, level, shape, backend):
+        """! @brief Fonction numpy -> numpy qui exécute la transformée d'analyse.
+
+        @param level    Level du codec.
+        @param shape    Forme de l'image complétée, (1, C, H, W).
+        @param backend  Clé de aidge_in_space.backends.BACKENDS.
+        @return Fonction tableau vers latents.
+        """
+        return backends.get_runner(backend, self.encoder(level), shape)
+
+    def _synthesize(self, model, y_hat):
+        """! @brief Transformée de synthèse des latents quantifiés.
+
+        @param model  Modèle du niveau.
+        @param y_hat  Latents quantifiés.
+        @return Image reconstruite (avant recadrage).
+        """
+        return model.g_s(y_hat)
+
     def onboard_module(self, model):
         """! @brief Tout ce qui s'exécute à bord pour produire le flux (hors codage arithmétique).
 
@@ -215,9 +242,10 @@ class LearnedCodec(Codec):
         model = self.model(level)
         x = to_tensor(img, channels=model.in_ch)
         H, W = x.shape[-2:]
-        Hp, Wp = _padded(H, model.pad_multiple), _padded(W, model.pad_multiple)
+        multiple = self._pad_multiple(model)
+        Hp, Wp = _padded(H, multiple), _padded(W, multiple)
         xp = F.pad(x, (0, Wp - W, 0, Hp - H), mode="replicate")
-        runner = backends.get_runner(backend, self.encoder(level), tuple(xp.shape))
+        runner = self._analysis_runner(level, tuple(xp.shape), backend)
         if real_rate:
             self.coding.tables(model)                 # préparées hors chronométrage
 
@@ -242,7 +270,7 @@ class LearnedCodec(Codec):
             else:
                 bits = enc["est_bits"]
                 y_hat = enc["y_hat"]
-            x_hat = model.g_s(y_hat)[..., :H, :W]
+            x_hat = self._synthesize(model, y_hat)[..., :H, :W]
             t_decoding = time.perf_counter() - t0
 
         if model.in_ch == 3 and img.ndim == 2:
@@ -262,7 +290,7 @@ class LearnedCodec(Codec):
         magic, version, H, W, _ = struct.unpack(HEADER, stream[:hs])
         if magic != MAGIC or version != VERSION:
             raise ValueError("flux non reconnu")
-        m, d = model.pad_multiple, model.downsampling
+        m, d = self._pad_multiple(model), model.downsampling
         shape = (1, model.M, _padded(H, m) // d, _padded(W, m) // d)
         return self.coding.decode(model, stream[hs:], shape)
 

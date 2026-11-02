@@ -14,6 +14,7 @@ Le contexte du projet et l'installation sont décrits dans le README du dépôt.
 | Tests | `python -m pytest tests` |
 | Plateforme d'entraînement : worker | `python -m aidge_in_space.worker` |
 | Entraînement en ligne de commande | `python -m aidge_in_space.train --config mon_essai.yaml` |
+| Optimisation Aidge en ligne de commande | `python -m aidge_in_space.optimize --config configs/optim/mixte_kodak.yaml` |
 | Cette documentation | `doxygen Doxyfile` puis `docs/html/index.html` |
 
 ## Organisation
@@ -25,6 +26,7 @@ Le contexte du projet et l'installation sont décrits dans le README du dépôt.
 | `aidge_in_space.codecs.classical` | JPEG, JPEG 2000 et WebP via Pillow |
 | `aidge_in_space.codecs.balle2017` | Modèles Ballé 2017 entraînés par le notebook (`outputs/checkpoints`) |
 | `aidge_in_space.codecs.bmshj2018` | Ballé 2018 factorisé et hyperprior, poids pré-entraînés de CompressAI |
+| `aidge_in_space.codecs.aidge_variants` | Variantes optimisées par Aidge : encodeur Aidge par tuiles, décodeur du checkpoint source (`outputs/optim`) |
 | `aidge_in_space.coding` | Codage entropique des latents, une classe par modèle d'entropie (`LatentCoding`) |
 | `aidge_in_space.entropy` | Codeur arithmétique et tables de fréquences |
 | `aidge_in_space.nn` | Architectures, GDN, modèles d'entropie |
@@ -36,9 +38,12 @@ Le contexte du projet et l'installation sont décrits dans le README du dépôt.
 | `aidge_in_space.ui_training` | Onglets 1. Entraîner et 2. Suivre : fonctions pures (jeux d'images, jobs, courbes) et adaptateurs Gradio |
 | `aidge_in_space.dataset_catalog` | Catalogue des jeux d'images téléchargeables : adresses, empreintes, licences |
 | `aidge_in_space.jobs` | `JobStore`, la file d'attente SQLite : jobs, métriques, battements de cœur des workers, statuts |
-| `aidge_in_space.worker` | Prend les jobs un par un et lance chacun dans un sous-processus `train` |
+| `aidge_in_space.worker` | Prend les jobs un par un et lance chacun dans un sous-processus `train` ou `optimize` |
 | `aidge_in_space.train` | Ligne de commande d'entraînement (`--config` ou `--job-id`) et codes de retour |
 | `aidge_in_space.training` | Paquet d'entraînement : `config` (`TrainConfig`, préréglages), `loop` (boucle, checkpoints, reprise), `imaging` (conversion 8 bits) |
+| `aidge_in_space.ui_optim` | Onglet 5. Optimisation Aidge |
+| `aidge_in_space.optimize` | Ligne de commande d'optimisation (`--config`, `--job-id`, `--analyze`), mêmes codes de retour que `train` |
+| `aidge_in_space.optim` | Paquet d'optimisation : `config`, `graph`, `ptq`, `memory`, `tiling`, `evaluate`, `export` (C++ d'Aidge), `export_c` (C pur pour LoCod), `pipeline`, `results` |
 
 ## Plateforme d'entraînement
 
@@ -51,6 +56,16 @@ Le statut final du job est déduit par le worker du code de retour (0 terminé, 
 regroupe les checkpoints en une série par architecture et par nom de run.
 
 Mode d'emploi pour l'équipe : `docs/guide_interface.md`. Conception détaillée : `docs/conception_entrainement.md`.
+
+## Optimisation Aidge
+
+Un job de type `optim` passe par la même file et le même worker, qui lance `python -m aidge_in_space.optimize --job-id N`.
+Trois recettes : `fp32` (référence), `int8` (tentative sur le graphe entier, détectée sans effet en Aidge 0.10.1 car `Sqrt`
+n'est pas quantifiable) et `mixte` (convolutions en INT8, GDN en flottant). Le pipeline écrit `outputs/optim/<id>/report.json`,
+deux exports vérifiés (C++ d'Aidge, et un `main.c` unique pour LoCod), puis `aidge_in_space.codecs.aidge_variants` expose les
+variantes comme des codecs. Une variante se reconstruit depuis sa recette (checkpoint, configuration, `calib.npz`).
+
+Conception, résultats du spike et axe de performance : `docs/conception_optimisation.md`. Spike LoCod et Bambu : `locod/spike/`.
 
 ## Ajouter un algorithme
 

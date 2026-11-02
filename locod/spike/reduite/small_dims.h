@@ -1,0 +1,13 @@
+#define C_IN 3
+#define H_IN 16
+#define W_IN 16
+#define C_OUT 4
+#define H_OUT 4
+#define W_OUT 4
+#define KH 9
+#define KW 9
+#define STRIDE 4
+#define PAD 4
+#define OUT_SCALE 9.045691695e-04f
+#define FIX_M 1989168640LL
+#define FIX_N 41

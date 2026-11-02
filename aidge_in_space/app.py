@@ -1,4 +1,4 @@
-"""! @brief Interface Gradio de la plateforme : entraîner, suivre, tester et valider un modèle.
+"""! @brief Interface Gradio de la plateforme : entraîner, suivre, tester, valider et optimiser un modèle.
 
 Lancement : @c python -m aidge_in_space.app puis http://127.0.0.1:7860. Chaque action est aussi
 exposée par l'API Gradio (api_name : test_model, benchmark, profile, compare_encoders,
@@ -17,7 +17,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from PIL import Image
 
-from . import backends, bench, config, profiling, ui_training
+from . import backends, bench, config, profiling, ui_optim, ui_style, ui_training
 from .codecs import LearnedCodec, all_codecs, closest_level, discover, get
 from .images import MODE_LABELS, convert, datasets, download_kodak, load_image
 from .metrics import MS_SSIM_MIN_SIDE
@@ -33,6 +33,11 @@ PROFILE_PRESETS = {"512 x 512": (512, 512), "Kodak 768 x 512": (512, 768), "1024
                    "2048 x 2048": (2048, 2048)}
 ## Codecs cochés par défaut dans « Comparer à » : les références demandées par le cas d'usage.
 REFERENCE_KEYS = ("jpeg", "jpeg2000")
+## Colonnes du tableau « Mesures » de l'onglet Tester, dans l'ordre de _row().
+MEASURE_COLUMNS = ["codec", "niveau", "débit", "bpp", "taux", "PSNR (dB)", "MS-SSIM", "encodage (ms)",
+                   "dont analyse (ms)", "décodage (ms)", "détails"]
+## Largeurs de ces colonnes : toutes visibles sans défilement sur un écran d'ordinateur.
+MEASURE_WIDTHS = ["17%", "17%", "6%", "6%", "6%", "7%", "7%", "8%", "8%", "8%", "10%"]
 
 
 # ---------------------------------------------------------------- choix proposés
@@ -604,9 +609,7 @@ def build():
     refs0, checked0 = reference_choices(model0)
 
     with gr.Blocks(title="AIDGE IN SPACE") as demo:
-        gr.Markdown("# AIDGE IN SPACE · entraîner et valider un modèle de compression\n"
-                    "**1.** Lancez un entraînement, **2.** suivez-le, **3.** testez le modèle sur une image, "
-                    "**4.** validez-le sur un jeu d'images face à JPEG.")
+        ui_style.header()
 
         with gr.Tabs() as tabs:
             # ------------------------------------------------ Entraîner, Suivre
@@ -614,57 +617,86 @@ def build():
 
             # ------------------------------------------------ Tester
             with gr.Tab("3. Tester", id="tester"):
+                ui_style.intro("**Jugez un modèle à l'œil sur une image.** Il est comparé aux formats de référence au "
+                               "débit le plus proche : à taille égale, lequel garde la meilleure image ?",
+                               "si le résultat convainc, mesurez le modèle sur un jeu entier dans **4. Valider**.")
                 with gr.Row():
-                    with gr.Column(scale=1, min_width=280):
-                        t_model = gr.Dropdown(models, value=model0, label="Modèle à tester")
-                        t_level = gr.Dropdown(level_choices(model0, model_mode(model0)) if model0 else [],
-                                              value=0 if model0 else None, label="Niveau de compression",
-                                              allow_custom_value=True)
-                        t_refs = gr.CheckboxGroup(refs0, value=checked0, label="Comparer à",
-                                                  info="Au débit le plus proche de celui du modèle.")
-                        dataset = gr.Dropdown(ds, value=ds0, label="Jeu d'images")
-                        image_name = gr.Dropdown(imgs0, value=imgs0[0] if imgs0 else None, label="Image")
-                        upload = gr.Image(type="pil", label="… ou importer une image", sources=["upload", "clipboard"],
-                                          height=120)
-                        t_go = gr.Button("Tester", variant="primary")
+                    with gr.Column(scale=2, min_width=340):
+                        with ui_style.card("Modèle"):
+                            t_model = gr.Dropdown(models, value=model0, label="Modèle à tester")
+                            t_level = gr.Dropdown(level_choices(model0, model_mode(model0)) if model0 else [],
+                                                  value=0 if model0 else None, label="Niveau de compression",
+                                                  allow_custom_value=True)
+                        with ui_style.card("Image"):
+                            dataset = gr.Dropdown(ds, value=ds0, label="Jeu d'images")
+                            image_name = gr.Dropdown(imgs0, value=imgs0[0] if imgs0 else None, label="Image")
+                            ui_style.hint("… ou importez votre propre image :")
+                            upload = gr.Image(type="pil", label="… ou importer une image", show_label=False,
+                                              sources=["upload", "clipboard"], height=170)
+                        t_go = gr.Button("Tester", variant="primary", elem_classes="main-action")
+                        with gr.Accordion("Comparer à (JPEG et JPEG 2000 par défaut)", open=False):
+                            t_refs = gr.CheckboxGroup(refs0, value=checked0, label="Codecs de référence",
+                                                      info="Au débit le plus proche de celui du modèle.")
                         with gr.Accordion("Options", open=False):
                             with gr.Row():
                                 zx = gr.Slider(0, 100, value=50, step=1, label="Zoom : position x (%)")
                                 zy = gr.Slider(0, 100, value=50, step=1, label="Zoom : position y (%)")
-                            t_backend = gr.Dropdown(bk, value="torch", label="Moteur de l'encodeur")
+                            t_backend = gr.Dropdown(bk, value="torch", label="Moteur de l'encodeur",
+                                                    info="Le résultat doit rester le même ; Aidge est bien plus lent "
+                                                    "sur PC.")
                             t_real = gr.Checkbox(value=True, label="Débit réel (codeur arithmétique, plus lent)")
-                    with gr.Column(scale=3):
-                        gallery = gr.Gallery(label="Original, modèle, erreur et comparaisons", columns=3, height=520,
-                                             object_fit="contain")
-                        zoom = gr.Gallery(label=f"Zoom x{ZOOM_FACTOR}", columns=6, height=230, object_fit="contain")
-                        table = gr.Dataframe(label="Mesures", wrap=True)
+                    with gr.Column(scale=5, min_width=340):
+                        with ui_style.card("Résultat", "L'original, le modèle, son erreur puis les comparaisons. "
+                                           "**Erreur x 4** : plus c'est clair, plus le modèle s'écarte de l'original."):
+                            gallery = gr.Gallery(label="Original, modèle, erreur et comparaisons", show_label=False,
+                                                 columns=3, height=560, object_fit="contain")
+                            ui_style.hint(f"**Zoom x{ZOOM_FACTOR}** : la même zone sur chaque image (position "
+                                          "réglable dans Options).")
+                            zoom = gr.Gallery(label=f"Zoom x{ZOOM_FACTOR}", show_label=False, columns=6, height=210,
+                                              object_fit="contain")
+                with ui_style.card("Mesures", "**bpp** : bits par pixel, plus bas signifie plus compressé. "
+                                   "**PSNR** et **MS-SSIM** : fidélité à l'original, plus haut est meilleur."):
+                    table = gr.Dataframe(show_label=False, wrap=True, headers=MEASURE_COLUMNS,
+                                         column_widths=MEASURE_WIDTHS)
                 t_model.input(model_updates, t_model, [t_level, t_refs])
                 t_go.click(run_test, [dataset, image_name, upload, t_model, t_level, t_refs, t_backend, t_real, zx, zy],
                            [gallery, zoom, table], api_name="test_model")
 
             # ------------------------------------------------ Valider
             with gr.Tab("4. Valider", id="valider"):
+                ui_style.intro("**Prouvez qu'un modèle fait mieux que JPEG.** Une campagne mesure les codecs cochés sur "
+                               "tout un jeu d'images, à plusieurs débits. Elle reste enregistrée et peut être "
+                               "réaffichée plus tard.")
                 with gr.Row():
-                    with gr.Column(scale=1, min_width=280):
-                        mode = gr.Radio(MODE_CHOICES, value="gris", label="Mode")
-                        b_keys = gr.CheckboxGroup(codec_choices("gris"), value=[v for _, v in codec_choices("gris")],
-                                                  label="Modèles et références")
-                        b_dataset = gr.Dropdown(ds, value=ds0, label="Jeu d'images")
-                        b_n = gr.Slider(1, step=1, label="Nombre d'images", **image_count_slider(len(imgs0)))
-                        b_go = gr.Button("Lancer la campagne", variant="primary")
+                    with gr.Column(scale=2, min_width=340):
+                        with ui_style.card("Quoi comparer"):
+                            mode = gr.Radio(MODE_CHOICES, value="gris", label="Mode")
+                            b_keys = gr.CheckboxGroup(codec_choices("gris"),
+                                                      value=[v for _, v in codec_choices("gris")],
+                                                      label="Modèles et références")
+                        with ui_style.card("Sur quelles images"):
+                            b_dataset = gr.Dropdown(ds, value=ds0, label="Jeu d'images")
+                            b_n = gr.Slider(1, step=1, label="Nombre d'images", **image_count_slider(len(imgs0)))
+                        b_go = gr.Button("Lancer la campagne", variant="primary", elem_classes="main-action")
                         b_status = gr.Markdown()
                         with gr.Accordion("Options", open=False):
-                            b_points = gr.Slider(2, 12, value=6, step=1, label="Points par courbe")
+                            b_points = gr.Slider(2, 12, value=6, step=1, label="Points par courbe",
+                                                 info="Il en faut au moins 4 pour calculer le BD-rate.")
                             b_name = gr.Textbox(label="Nom de la campagne (facultatif)")
-                            b_backend = gr.Dropdown(bk, value="torch", label="Moteur de l'encodeur")
+                            b_backend = gr.Dropdown(bk, value="torch", label="Moteur de l'encodeur",
+                                                    info="Le résultat doit rester le même ; Aidge est bien plus lent "
+                                                    "sur PC.")
                             b_real = gr.Checkbox(value=True, label="Débit réel (codeur arithmétique, plus lent)",
                                                  info="Décochez pour accélérer une grosse campagne.")
-                    with gr.Column(scale=3):
-                        runs = gr.Dropdown(bench.list_runs(), multiselect=True, label="Campagnes affichées")
-                        with gr.Row():
-                            fig_psnr = gr.Plot(label="PSNR")
-                            fig_ssim = gr.Plot(label="MS-SSIM")
-                        bd = gr.Dataframe(label="BD-rate (négatif = moins de bits que la référence à qualité égale)")
+                    with gr.Column(scale=5, min_width=340):
+                        with ui_style.card("Résultats", "Sur les courbes, le meilleur codec est le plus **en haut à "
+                                           "gauche** : plus de qualité pour moins de bits."):
+                            runs = gr.Dropdown(bench.list_runs(), multiselect=True, label="Campagnes affichées")
+                            with gr.Row():
+                                fig_psnr = gr.Plot(label="PSNR")
+                                fig_ssim = gr.Plot(label="MS-SSIM")
+                            bd = gr.Dataframe(label="BD-rate (négatif = moins de bits que la référence à qualité "
+                                              "égale)", headers=["courbe", "BD-rate (%)"])
                         with gr.Accordion("Détails de la campagne", open=False):
                             with gr.Row():
                                 ref = gr.Dropdown([], label="Référence du BD-rate")
@@ -700,6 +732,9 @@ def build():
                 p_go.click(profile, [p_codec, p_level, p_size], [p_md, p_table, p_fig], api_name="profile")
                 p_all.click(compare_encoders, [p_size, mode], p_table, api_name="compare_encoders")
                 p_check.click(check_backends, [p_codec, p_level, p_size], p_check_table, api_name="check_backends")
+
+            # ------------------------------------------------ Optimisation Aidge
+            ui_optim.build_tab()
 
         # ------------------------------------------------ Aide
         with gr.Accordion("Aide : mesures, codecs disponibles, ajout d'un algorithme", open=False):
@@ -743,8 +778,8 @@ def main(argv=None):
     download_kodak()
     discover()
     build().queue().launch(server_name=host, server_port=args.port, inbrowser=args.inbrowser,
-                           max_file_size=f"{upload_mb}mb", theme=gr.themes.Soft(),
-                           allowed_paths=[str(config.CKPT_DIR)])
+                           auth=users or None, max_file_size=f"{upload_mb}mb", theme=ui_style.THEME,
+                           css=ui_style.CSS, allowed_paths=[str(config.CKPT_DIR)])
 
 
 if __name__ == "__main__":

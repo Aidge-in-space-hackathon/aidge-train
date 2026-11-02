@@ -354,7 +354,7 @@ def test_jobs_table(store):
     store.log_metrics(a, 30, "train", {"eta_s": 600.0})
     b = store.submit(TrainConfig(name="second", lmbda=512).to_dict())
     df = ui.jobs_table(store)
-    assert list(df.columns) == ["n°", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)",
+    assert list(df.columns) == ["n°", "type", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)",
                                 "temps restant", "créé le"]
     assert list(df["n°"]) == [b, a]                                # du plus récent au plus ancien
     assert list(df["statut"]) == ["En attente", "En cours"]
@@ -454,9 +454,9 @@ def test_app_build_contient_les_onglets(store, tmp_path, monkeypatch):
     demo = app.build()
     assert isinstance(demo, gr.Blocks)
     labels = {getattr(b, "label", None) for b in demo.blocks.values() if isinstance(b, gr.Tab)}
-    assert labels == {"1. Entraîner", "2. Suivre", "3. Tester", "4. Valider"}
+    assert labels == {"1. Entraîner", "2. Suivre", "3. Tester", "4. Valider", "5. Optimisation Aidge"}
     ids = {getattr(b, "id", None) for b in demo.blocks.values() if isinstance(b, gr.Tab)}
-    assert ids == {"entrainement", "suivi", "tester", "valider"}
+    assert ids == {"entrainement", "suivi", "tester", "valider", "optimisation"}
 
 
 def test_app_parse_users():

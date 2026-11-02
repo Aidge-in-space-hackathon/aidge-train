@@ -57,3 +57,9 @@ AIDGE_IMAGE=ghcr.io/aidge-in-space-hackathon/aidge-train AIDGE_TAG=gpu-<sha> /op
 ```
 
 Le plus propre reste un `git revert` sur `main`, qui redéploie la version corrigée par le même chemin.
+
+### Pas de retour arrière après la migration de la base
+
+L'onglet Optimisation Aidge fait passer la base des jobs à la version 2 du schéma (colonne `kind`), au premier démarrage de cette version. C'est automatique et sans perte : les jobs existants deviennent des entraînements. **Mais il n'y a pas de retour arrière** : une image antérieure refuse une base plus récente qu'elle (`RuntimeError`, `user_version` trop élevé), et ne démarre donc plus sur le volume `aidge-train-prod_runs`. Cela vaut pour le retour automatique de `deploy.sh` comme pour les deux procédures ci-dessus : une fois la base migrée, revenir à une image plus ancienne échoue. Ce choix est assumé. Pour revenir quand même à une telle image, il faut d'abord remettre une sauvegarde du volume, faite avant la migration, en acceptant de perdre les jobs créés depuis.
+
+Par ailleurs, l'image contient maintenant `g++`, qui sert à compiler et vérifier les exports C.
