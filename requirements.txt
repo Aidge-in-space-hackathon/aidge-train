@@ -4,8 +4,11 @@
 # Calcul et modèle
 # L'index cu126 du Dockerfile s'arrête à 2.14.1 : une borne plus haute ferait installer par-dessus le torch de PyPI (CUDA 13)
 torch>=2.14.1
-# numpy 2.5 et plus exigent Python 3.12 : à relever avec la version de Python du Dockerfile (3.11)
+# numpy 2.5 et plus exigent Python 3.12 : à relever avec la version de Python du Dockerfile (3.11),
+# sans dépasser le plafond de numba (numpy<2.6 pour numba 0.68)
 numpy>=1.26
+# Noyaux compilés du codeur arithmétique (aidge_in_space/entropy.py) ; sans numba, repli en Python pur
+numba==0.68.1
 pandas>=3.1.0
 pyyaml>=6.0.3
 

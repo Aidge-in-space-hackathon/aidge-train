@@ -28,7 +28,7 @@ Le contexte du projet et l'installation sont décrits dans le README du dépôt.
 | `aidge_in_space.codecs.bmshj2018` | Ballé 2018 factorisé et hyperprior, poids pré-entraînés de CompressAI |
 | `aidge_in_space.codecs.aidge_variants` | Variantes optimisées par Aidge : encodeur Aidge par tuiles, décodeur du checkpoint source (`outputs/optim`) |
 | `aidge_in_space.coding` | Codage entropique des latents, une classe par modèle d'entropie (`LatentCoding`) |
-| `aidge_in_space.entropy` | Codeur arithmétique et tables de fréquences |
+| `aidge_in_space.entropy` | Codeur arithmétique et tables de fréquences (noyaux numba au flux identique, repli en Python pur sans numba) |
 | `aidge_in_space.nn` | Architectures, GDN, modèles d'entropie |
 | `aidge_in_space.backends` | Exécution de l'encodeur sur PyTorch, ONNX Runtime ou Aidge |
 | `aidge_in_space.profiling` | Calcul, paramètres et mémoire de la partie embarquée, couche par couche |
