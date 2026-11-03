@@ -141,6 +141,7 @@ def test_module_de_config_sans_torch_ni_aidge():
 # ------------------------------------------------------------------ fonctions pures
 
 def test_detection_sans_effet_un_seul_signal_suffit():
+    pytest.importorskip("aidge_quantization")
     from aidge_in_space.optim.ptq import no_effect_signals
     a, b = {"Conv": 1}, {"Conv": 1, "Quantizer": 2}
     assert no_effect_signals(True, a, b, False)["no_effect"] is False
@@ -320,6 +321,7 @@ def test_le_worker_execute_un_job_d_optimisation(tmp_path, monkeypatch):
 
 
 def test_la_cli_refuse_un_job_d_entrainement(tmp_path):
+    pytest.importorskip("aidge_core")         # optimize.run importe le pipeline, donc Aidge, avant de lire le job
     from aidge_in_space import optimize
     db = tmp_path / "runs.sqlite"
     store = JobStore(db)
@@ -329,6 +331,7 @@ def test_la_cli_refuse_un_job_d_entrainement(tmp_path):
 
 
 def test_la_cli_refuse_une_config_invalide(tmp_path):
+    pytest.importorskip("aidge_core")
     from aidge_in_space import optimize
     bad = tmp_path / "c.yaml"
     bad.write_text("name: x\ninconnu: 1\n", encoding="utf-8")
@@ -512,13 +515,16 @@ def test_l_onglet_5_liste_les_optimisations_seules(tmp_path, monkeypatch):
     assert row["statut"] == "En attente" and row["tuile"] == "64 x 64" and row["recettes"] == "fp32, mixte"
     assert row["étape"] == "-" and row["terminé le"] == "-"
     assert [v for _, v in ui_training.job_choices(store, "optim")] == sorted(ids, reverse=True)
-    assert ui_optim.optim_jobs_table(JobStore(tmp_path / "vide.sqlite")).empty
+    empty = JobStore(tmp_path / "vide.sqlite")
+    assert ui_optim.optim_jobs_table(empty).empty
     with pytest.raises(ValueError, match="Suivre"):
         ui_optim.optim_job_details(store, train_id)
     with pytest.raises(KeyError):
         ui_optim.optim_job_details(store, 999)
     summary, log, variants, files = ui_optim.optim_job_details(store, None)
-    assert summary == "Sélectionnez une optimisation." and log == "" and variants.empty and files == []
+    assert summary == ui_optim.NO_JOB_SELECTED and log == "" and variants.empty and files == []
+    assert ui_optim.optim_job_details(empty, None)[0] == ui_optim.NO_JOB_YET      # état vide : dit quoi faire
+    assert "Lancer" in ui_optim.NO_JOB_YET
 
 
 def test_suivi_d_une_optimisation_de_bout_en_bout(tmp_path, monkeypatch):
@@ -556,9 +562,9 @@ def test_suivi_d_une_optimisation_de_bout_en_bout(tmp_path, monkeypatch):
     (folder / "fp32").mkdir()
     (folder / "fp32" / "export.zip").write_bytes(b"zip")
     summary, _, variants, files = ui_optim.optim_job_details(store, job_id)
-    assert "SANS EFFET" in summary and "Sqrt" in summary
-    assert list(variants["recette"]) == ["fp32", "int8"]
-    assert files == [(f"n°{job_id} · serie · fp32 : export C++ (zip)", str(folder / "fp32" / "export.zip"))]
+    assert "SANS EFFET" in summary and "Sqrt" in summary and "Télécharger le code" in summary
+    assert list(variants["recette"]) == ["fp32", "int8"] and list(variants.columns) == ui_optim.SUMMARY_COLUMNS
+    assert files == [(f"n°{job_id} · serie · λ=1024 · fp32 : export C++ (zip)", str(folder / "fp32" / "export.zip"))]
     assert ui_optim.done_optim_jobs(store) == {job_id}
     assert results.report_for_job(job_id)["_dir"] == str(folder)
 
@@ -588,6 +594,115 @@ def test_bandeau_du_worker_selon_l_onglet(tmp_path):
 def test_interface_construite_avec_l_onglet():
     from aidge_in_space import app
     assert app.build() is not None
+
+
+def _blocks(block):
+    """Composants d'un bloc Gradio, dans l'ordre où l'utilisateur les voit."""
+    yield block
+    for child in getattr(block, "children", None) or []:
+        yield from _blocks(child)
+
+
+def test_l_onglet_5_suit_un_parcours_en_etapes(tmp_path, monkeypatch):
+    import gradio as gr
+    monkeypatch.setattr(config, "OPTIM_DIR", tmp_path / "optim")
+    with gr.Blocks() as demo:
+        with gr.Tabs():
+            ui_optim.build_tab(JobStore(tmp_path / "runs.sqlite"))
+    tab = next(b for b in demo.blocks.values() if isinstance(b, gr.Tab))
+    blocks = list(_blocks(tab))
+    titles = [b.value.split("\n")[0][4:] for b in blocks if isinstance(b, gr.Markdown) and (b.value or "").startswith("### ")]
+    assert titles == ["1. Modèle à optimiser", "2. Recette", "3. Analyser ou lancer", "Analyse",
+                      "4. Suivre les optimisations", "5. Comparer les variantes", "Télécharger le code"]
+    recipes = next(b for b in blocks if isinstance(b, gr.CheckboxGroup) and b.label == "Recettes")
+    assert recipes.value == ["mixte"] and {v for _, v in recipes.choices} == set(config_recipes())
+    assert all(not b.open for b in blocks if isinstance(b, gr.Accordion))       # options et aide repliées
+    assert sum(isinstance(b, gr.File) for b in blocks) == 1                     # une seule zone de téléchargement
+    texts = " ".join(b.value or "" for b in blocks if isinstance(b, gr.Markdown))
+    assert ui_optim.NO_JOB_YET in texts and "Aucun résultat pour l'instant" in texts
+
+
+def config_recipes():
+    """Recettes du contrat."""
+    from aidge_in_space.optim.config import RECIPES
+    return RECIPES
+
+
+def test_tableau_synthetique_lisible():
+    variants = {"fp32": {"status": "ok", "memory": {"peak_bytes": 393216, "conv_weights_bytes": 315000},
+                         "rd": {"delta_bpp_pct": None, "delta_psnr_db": None},
+                         "export": {"status": "verifie", "symbols_identical_pct": 100.0}},
+                "int8": {"status": "sans_effet", "reason": "Sqrt"},
+                "mixte": {"status": "echec", "reason": "Seuls 50 % des symboles " + "x" * 300,
+                          "rd": {"delta_bpp_pct": 2.41815, "delta_psnr_db": -0.05263},
+                          "export": {"status": "divergent", "symbols_identical_pct": 50.0},
+                          "locod": {"status": "non_compile"}}}
+    rows = ui_optim.summary_table([fake_report("7", variants=variants), fake_report("cfg-serie-20261102")]).to_dict("records")
+    assert rows[0]["origine"] == "ligne de commande" and rows[2]["origine"] == "n°7"
+    fp32, int8, mixte = rows[2:]
+    assert fp32["verdict"] == "✅ utilisable" and fp32["Δ débit (%)"] == "référence"
+    assert fp32["mémoire de travail / BRAM (%)"] == 62 and fp32["poids dans le FPGA / BRAM (%)"] == 50
+    assert fp32["export C++"] == "vérifié : 100 % identique à Aidge" and fp32["fichier LoCod"] == "-"
+    assert "SANS EFFET" in int8["verdict"] and int8["export C++"] == "non généré"
+    assert int8["Δ débit (%)"] == "-" and int8["mémoire de travail / BRAM (%)"] == "-"
+    assert mixte["verdict"].startswith("❌ ÉCHEC : Seuls 50 %") and len(mixte["verdict"]) < 200
+    assert mixte["Δ débit (%)"] == 2.42 and mixte["Δ PSNR (dB)"] == -0.053
+    assert mixte["export C++"] == "faux : 50 % identique à Aidge" and mixte["fichier LoCod"] == "produit, non vérifié (pas de g++)"
+    assert ui_optim.summary_table([]).empty
+
+
+def test_etats_vides_et_phrases_d_aide():
+    import pandas as pd
+    assert "1. Entraîner" in ui_optim.sources_hint([]) and "4" in ui_optim.sources_hint([("a", "a.pt")])
+    assert "data/train" in ui_optim.calibration_hint([])
+    assert "Aucun résultat" in ui_optim.results_hint([]) and "3. Tester" in ui_optim.results_hint([fake_report()])
+    bd_empty = pd.DataFrame(columns=ui_optim.BD_COLUMNS)
+    assert "même nom" in ui_optim.bd_hint(bd_empty)
+    assert "raison" in ui_optim.bd_hint(pd.DataFrame([{"BD-rate (%)": None}]))
+    assert "négatif" in ui_optim.bd_hint(pd.DataFrame([{"BD-rate (%)": 1.2}]))
+    assert "Aucun code" in ui_optim.files_hint([]) and "LoCod" in ui_optim.files_hint([("x", "y")])
+
+
+def test_bandeau_et_erreurs_quand_aidge_manque(tmp_path):
+    store = JobStore(tmp_path / "runs.sqlite")
+    assert "Aidge n'est pas installé" in ui_optim.optim_banner(store, aidge=False)
+    assert "Aidge n'est pas installé" not in ui_optim.optim_banner(store, aidge=True)
+    assert "requirements.txt" in ui_optim.friendly_error("ModuleNotFoundError: No module named 'aidge_core'")
+    assert ui_optim.friendly_error("autre chose") == "autre chose"
+    assert isinstance(ui_optim.aidge_available(), bool)
+    from aidge_in_space.jobs import Job
+    job = Job(id=3, status="failed", name="x", author="", config=_job_config(), in_ch=3, N=SMALL_N, lmbda=1.0, steps=4,
+              last_step=0, cancel_requested=False, attempts=1, worker="w", ckpt_path=None,
+              error="ModuleNotFoundError: No module named 'aidge_core'", created_at=0.0, queued_at=0.0, started_at=1.0,
+              finished_at=2.0, heartbeat_at=None, kind="optim")
+    assert "Le worker n'a pas Aidge" in ui_optim.optim_job_summary(job, None)
+
+
+def test_analyse_du_premier_modele_coche_et_verdict():
+    cfg = ui_optim.analysis_config(["b.pt", "a.pt"], 64, [], "MAX", False, 8, None, 2, sources=SOURCES)
+    assert cfg.source.checkpoint == "b.pt" and cfg.recipes == ["fp32", "mixte"]
+    with pytest.raises(ValueError, match="étape 1"):
+        ui_optim.analysis_config([], 64, [], "MAX", False, 8, None, 2, sources=SOURCES)
+    mem = lambda p, w, c: {"peak_bytes": p, "weights_bytes": w, "conv_weights_bytes": c, "bram_bytes": 630000}
+    result = {"source": {"N": 128, "lmbda": 1024}, "tile": [3, 64, 64],
+              "quantizability": {"quantizable": False, "operators": [{"type": "Sqrt", "count": 3, "state": "inconnu"}]},
+              "memory_fp32": mem(393216, 3600896, 3402752), "memory_mixte": mem(393216, 1049984, 851840)}
+    text = ui_optim.analysis_markdown(result, n_checked=3)
+    assert "❌" in text and "229 %" in text and "premier des 3" in text and "rien n'a été enregistré" in text
+    result["memory_mixte"] = mem(196608, 271040, 221120)
+    assert "✅" in ui_optim.analysis_markdown(result)
+
+
+def test_recettes_expliquees_et_retour_apres_lancer(tmp_path):
+    assert [v for _, v in ui_optim.RECIPE_CHOICES][0] == "mixte"
+    assert all(" : " in label for label, _ in ui_optim.RECIPE_CHOICES + ui_optim.CLIPPING_CHOICES)
+    assert dict((v, l) for l, v in ui_optim.TILE_LABELS)[ui_optim.DEFAULT_TILE].endswith("(conseillée)")
+    store = JobStore(tmp_path / "runs.sqlite")
+    with pytest.raises(ValueError, match="recette"):
+        _launch(store, recipes=())
+    msg = ui_optim.launch_message([4, 5])
+    assert "2 jobs déposés : n°4, n°5" in msg and "4. Suivre" in msg and "n°4 y est sélectionné" in msg
+    assert "Job déposé : n°9" in ui_optim.launch_message([9])
 
 
 # ------------------------------------------------------------------ générateur C : fonctions sans graphe
@@ -892,9 +1007,15 @@ def test_menus_relus_d_apres_l_etat_du_serveur(monkeypatch):
     """Un checkpoint ou un jeu arrivés après le démarrage apparaissent ; un checkpoint disparu est décoché."""
     monkeypatch.setattr(ui_optim, "source_choices", lambda: [("a", "a.pt")])
     monkeypatch.setattr(ui_optim, "dataset_choices", lambda: [("jeu", "jeu")])
-    sources, calibration = ui_optim.menu_updates(["a.pt", "disparu.pt"], None)
+    sources, sources_hint, calibration, calibration_hint = ui_optim.menu_updates(["a.pt", "disparu.pt"], None)
     assert sources["choices"] == [("a", "a.pt")] and sources["value"] == ["a.pt"]
     assert calibration["choices"] == [("jeu", "jeu")] and calibration["value"] == "jeu"
+    assert "λ" in sources_hint and "rover" in calibration_hint
+    monkeypatch.setattr(ui_optim, "source_choices", lambda: [])
+    monkeypatch.setattr(ui_optim, "dataset_choices", lambda: [])
+    sources, sources_hint, calibration, calibration_hint = ui_optim.menu_updates(["a.pt"], "jeu")
+    assert sources["value"] == [] and calibration["value"] is None
+    assert "1. Entraîner" in sources_hint and "Ajouter des images" in calibration_hint     # états vides : quoi faire
 
 
 def test_cli_analyse_et_codes_de_retour_constants():

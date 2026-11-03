@@ -22,6 +22,13 @@ TABLE_COLUMNS = ["job", "nom", "recette", "statut", "N", "λ", "tuile", "pic / B
                  "ΔPSNR (dB)", "binaire (Kio)", "export", "identiques Aidge (%)", "identiques PyTorch (%)", "LoCod"]
 ## Libellés des statuts d'une variante.
 STATUS_LABELS = {"ok": "OK", "sans_effet": "SANS EFFET", "echec": "ÉCHEC"}
+## Verdicts d'une variante, pour des lecteurs qui ne connaissent pas Aidge.
+VERDICTS = {"ok": "✅ utilisable", "sans_effet": "⚠️ SANS EFFET : rien n'a été quantifié", "echec": "❌ ÉCHEC"}
+## Sens des états de l'export C++ et du fichier pour LoCod.
+EXPORT_LABELS = {"verifie": "vérifié", "non_compile": "produit, non vérifié (pas de g++)",
+                 "echec_compilation": "la compilation a échoué", "divergent": "faux"}
+## Longueur maximale d'une raison d'échec dans un tableau.
+REASON_MAX_CHARS = 140
 
 ## Empreintes déjà calculées : (chemin, date, taille) -> SHA-256.
 _sha_cache = {}
@@ -166,6 +173,51 @@ def report_for_job(job_id, optim_dir=None):
     return report
 
 
+def variant_verdict(variant, max_chars=REASON_MAX_CHARS):
+    """! @brief Verdict lisible d'une variante : utilisable, sans effet, ou échec avec sa raison (fonction pure).
+
+    @param variant    Entrée de @c variants d'un rapport.
+    @param max_chars  Longueur maximale de la raison ; None : entière.
+    @return Texte court.
+    """
+    status = variant.get("status")
+    text = VERDICTS.get(status, str(status))
+    reason = variant.get("reason")
+    if status == "echec" and reason:
+        reason = str(reason)
+        if max_chars is not None and len(reason) > max_chars:
+            reason = reason[:max_chars - 1].rstrip() + "…"
+        text += f" : {reason}"
+    return text
+
+
+def export_text(export):
+    """! @brief État de l'export C++ en clair, avec le taux de symboles identiques au graphe Aidge (fonction pure).
+
+    @param export  Entrée @c export d'une variante, ou None.
+    @return Texte court ; « non généré » sans export.
+    """
+    export = export or {}
+    status = export.get("status")
+    if not status:
+        return "non généré"
+    pct = export.get("symbols_identical_pct")
+    text = EXPORT_LABELS.get(status, status)
+    if status in ("verifie", "divergent") and pct is not None:
+        text += f" : {pct:g} % identique à Aidge"
+    return text
+
+
+def locod_text(locod):
+    """! @brief État du fichier C pour LoCod en clair (fonction pure).
+
+    @param locod  Entrée @c locod d'une variante, ou None (recette sans fichier LoCod).
+    @return Texte court ; « - » sans fichier.
+    """
+    status = (locod or {}).get("status")
+    return EXPORT_LABELS.get(status, status) if status else "-"
+
+
 def summary_markdown(report):
     """! @brief Résumé d'un rapport, pour le suivi d'un job dans l'onglet « 5. Optimisation Aidge » (fonction pure).
 
@@ -173,14 +225,15 @@ def summary_markdown(report):
     @return Texte Markdown.
     """
     if report is None:
-        return "Rapport pas encore disponible."
+        return "Rapport pas encore disponible : il s'affiche à la fin de l'optimisation."
     lines = []
     for recipe, v in report["variants"].items():
-        ex = v.get("export") or {}
-        line = f"- **{recipe}** : {STATUS_LABELS.get(v['status'], v['status'])}"
-        if v.get("reason"):
-            line += f". {v['reason']}"
-        if ex.get("status"):
-            line += f" Export : {ex['status']}."
-        lines.append(line)
+        line = f"- **{recipe}** : {variant_verdict(v, None)}"
+        if v.get("status") == "sans_effet" and v.get("reason"):
+            line += f". {str(v['reason']).rstrip('.')}"
+        if v.get("export"):
+            line += f". Export C++ : {export_text(v['export'])}"
+        if v.get("locod"):
+            line += f". Fichier LoCod : {locod_text(v['locod'])}"
+        lines.append(line.rstrip(".") + ".")
     return "\n".join(lines)
