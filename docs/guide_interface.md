@@ -112,7 +112,7 @@ Faites toujours un test rapide avant un long entraînement : il vérifie que tou
 
 ## 4. Suivre l'entraînement (onglet 2. Suivre)
 
-L'onglet **2. Suivre** se rafraîchit tout seul toutes les 5 secondes.
+L'onglet **2. Suivre** se rafraîchit tout seul toutes les 5 secondes. Il ne montre que les entraînements : les optimisations Aidge se suivent dans l'onglet 5 (voir [section 7](#7-préparer-le-modèle-pour-la-carte-onglet-5-optimisation-aidge)).
 
 - **Le bandeau en haut** dit si un worker est actif. Si non, voir [section 8](#8-quand-quelque-chose-ne-va-pas).
 - **Le tableau « Entraînements »** liste les jobs (un job = un entraînement pour une valeur de λ), du plus récent au plus ancien, avec leur statut, leur progression en pourcentage et le temps restant estimé.
@@ -160,7 +160,7 @@ Sélectionnez d'abord le job dans le menu « Entraînement à examiner ».
 
 - **Télécharger le modèle** : sous les courbes, la zone « Modèle entraîné » propose le fichier `.pt` du job choisi dès que son premier point de sauvegarde existe. Pour un job en cours, c'est le dernier point de sauvegarde, pas le modèle final : attendez le statut Terminé pour le modèle complet.
 - **Annuler** : ouvrez la section « Annuler cet entraînement », cochez « Je confirme l'annulation », puis cliquez sur **Annuler**. Un job en attente est annulé aussitôt. Un job en cours sauvegarde son avancement puis s'arrête dans les secondes qui suivent.
-- **Relancer** : disponible pour un job En échec, Annulé ou Interrompu. Le job repart dans la file et **reprend à son dernier point de sauvegarde**, sans refaire ce qui est déjà fait. Une optimisation Aidge, elle, recommence depuis le début. Si le job échoue de nouveau, lisez le message d'erreur dans le résumé.
+- **Relancer** : disponible pour un job En échec, Annulé ou Interrompu. Le job repart dans la file et **reprend à son dernier point de sauvegarde**, sans refaire ce qui est déjà fait. Si le job échoue de nouveau, lisez le message d'erreur dans le résumé.
 - **Dupliquer la configuration** : copie les réglages du job dans l'onglet 1. Entraîner (le nom reçoit « (copie) »), pour en lancer un nouveau en changeant une valeur. Si le jeu d'images d'origine n'existe plus, un avertissement vous demande d'en choisir un autre.
 
 ## 6. Tester et valider le modèle (onglets 3 et 4)
@@ -193,9 +193,18 @@ Sur la carte, la mémoire et le calcul sont comptés. Un modèle entraîné util
 2. Choisissez les **images de calibration** : Aidge s'en sert pour régler les entiers. Prenez des images proches de ce que verra le rover.
 3. Gardez la **taille de tuile** de 64 si vous n'avez pas de raison d'en changer. L'image est découpée en carrés de cette taille, traités un par un : c'est ce qui limite la mémoire.
 4. Cliquez sur **Analyser** : en quelques secondes, vous voyez si le modèle tiendra en mémoire.
-5. Cliquez sur **Lancer** : un job part dans la file, comme un entraînement. Suivez-le dans l'onglet **2. Suivre**. Comptez plusieurs minutes par modèle, davantage avec la compilation et les 24 images d'évaluation.
+5. Cliquez sur **Lancer** : un job par modèle coché part dans la file, comme un entraînement. Vous restez dans l'onglet : le job apparaît plus bas, dans **Suivi des optimisations**. Comptez plusieurs minutes par modèle, davantage avec la compilation et les 24 images d'évaluation.
 
 Une fois le job terminé, la variante apparaît dans les onglets **3. Tester** et **4. Valider**, sous un nom qui commence par « Aidge ». Dans ces onglets, elle s'exécute toujours avec Aidge, quel que soit le moteur choisi : c'est plus lent, et c'est voulu.
+
+### Suivre une optimisation
+
+La section **Suivi des optimisations**, en bas de l'onglet, se rafraîchit toute seule toutes les 5 secondes. Comme pour un entraînement, vous pouvez fermer la page : l'optimisation continue dans le worker.
+
+- **Le tableau** liste les optimisations, de la plus récente à la plus ancienne : statut, auteur, λ, tuile, recettes, progression, étape en cours (par exemple « mixte : export »), dates de création et de fin. Les statuts sont ceux des entraînements ([section 4](#les-statuts)).
+- **Le menu « Optimisation à examiner »** affiche le résumé du job choisi : réglages, étape en cours, et le résultat de chaque recette une fois le job terminé. À droite, **Résultat de cette optimisation** donne le tableau de ses variantes et ses fichiers à télécharger. La section **Journal** contient les 50 dernières lignes du journal.
+- **Annuler** : ouvrez la section « Annuler cette optimisation », cochez « Je confirme l'annulation », puis cliquez sur **Annuler**. Un job en attente est annulé aussitôt ; un job en cours s'arrête à la fin de l'étape en cours, ce qui peut prendre quelques minutes pendant une compilation.
+- **Relancer** : disponible pour une optimisation En échec, Annulée ou Interrompue. Contrairement à un entraînement, elle **recommence depuis le début**.
 
 ### Lire les résultats
 
@@ -212,7 +221,7 @@ Une fois le job terminé, la variante apparaît dans les onglets **3. Tester** e
 
 ### Récupérer le code
 
-Le menu **Code C à télécharger** propose :
+Les fichiers d'une optimisation sont dans **Résultat de cette optimisation**, une fois le job choisi. Le menu **Code C à télécharger**, en haut à droite, regroupe ceux de toutes les optimisations, y compris celles lancées en ligne de commande. On y trouve :
 
 - **export C++ (zip)** : le code d'Aidge, à compiler pour le processeur de la carte ;
 - **fichier C pour LoCod** : un seul fichier `main.c`, pour la chaîne FPGA. Les convolutions y sont des accélérateurs, et la GDN reste sur le processeur.
@@ -223,7 +232,7 @@ Sans compilateur sur la machine, le code est quand même produit, mais non véri
 
 | Situation | Que faire |
 | :- | :- |
-| Le bandeau dit « Aucun worker actif : les entraînements restent en attente » | Le worker ne tourne pas. Double-cliquez sur `scripts\lancer_plateforme.bat` (ou lancez `docker compose up worker`). Les jobs en attente démarreront alors seuls. |
+| Le bandeau dit « Aucun worker actif : les entraînements restent en attente » (ou « les optimisations Aidge », dans l'onglet 5) | Le worker ne tourne pas. Double-cliquez sur `scripts\lancer_plateforme.bat` (ou lancez `docker compose up worker`). Les jobs en attente démarreront alors seuls. |
 | Un job reste « En attente » alors que le bandeau dit « Worker actif » | Un autre job est probablement en cours : le worker les traite un par un. Patientez. |
 | Un job est « Interrompu » | Le worker s'est arrêté (fenêtre fermée, ordinateur éteint, mise à jour). Remettez la plateforme en route, sélectionnez le job, cliquez sur **Relancer**. |
 | Après un redémarrage, un job reste « En cours » sans avancer | Le worker précédent s'est arrêté brutalement. Le nouveau worker s'en aperçoit au bout d'environ une minute et passe le job en « Interrompu ». Attendez cette minute, puis cliquez sur **Relancer**. |

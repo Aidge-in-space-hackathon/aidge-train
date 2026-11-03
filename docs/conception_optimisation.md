@@ -241,7 +241,9 @@ aidge_in_space/ui_optim.py          onglet « 5. Optimisation Aidge »
 configs/optim/*.yaml                exemples
 ```
 
-Modules modifiés : `jobs.py`, `worker.py`, `app.py`, `ui_training.py` (colonne `type`, jobs sans courbes),
+Modules modifiés : `jobs.py` (colonne `kind`, filtre `kind` de `list_jobs`), `worker.py`, `app.py`, `ui_training.py`
+(Suivre réservé aux entraînements ; fonctions communes réutilisées par l'onglet 5 : `visible_jobs`, `job_choices`,
+`cancel_job`, `requeue_job`, `job_action`, `worker_banner`, `log_tail`),
 `codecs/base.py` (points d'extension, § 8), `config.py` (`OPTIM_DIR`, et `BRAM_BYTES` déplacé depuis
 `ui_training.py`, qui le réimporte), `Dockerfile` (g++).
 
@@ -434,8 +436,11 @@ cette base. On le documente sans le contourner, dans `docs/deploiement.md`.
   obligatoires et valent, pour un job d'optimisation, les valeurs du checkpoint source et le nombre d'étapes.
 - `worker.py` : `job_command(job, cmd)` choisit `TRAIN_CMD` ou `OPTIM_CMD`. Le paramètre `cmd` de `run_worker` reste
   prioritaire pour les tests. Le journal garde le nom `train.log`.
-- Onglet Suivre : colonne `type` dans `jobs_table`. `_curves` renvoie `None` pour un job `optim`, dont le détail
-  affiche le résumé de `report.json`. `duplicate_config` refuse un job `optim`.
+- **Les jobs `optim` se suivent dans l'onglet 5, pas dans Suivre** (§ 9). Une optimisation n'est pas un entraînement : ni
+  courbes, ni checkpoint, ni temps restant. Le filtre est `JobStore.list_jobs(kind=...)`, sans changement de schéma :
+  `jobs_table` et `job_choices` de l'onglet Suivre ne listent que les jobs `train`. `duplicate_config` refuse toujours un
+  job `optim`. La détection des jobs terminés (`new_done_jobs`), qui recharge les codecs, porte sur tous les types : une
+  variante terminée apparaît dans Tester et Valider sans passer par Suivre.
 
 ---
 
@@ -444,10 +449,10 @@ cette base. On le documente sans le contourner, dans `docs/deploiement.md`.
 ```
 (formulaire) -> Analyser        sous-processus court, rien n'est écrit dans la base
              -> Lancer          submit(kind="optim") -> queued
-queued -> running (worker)      optimize --job-id N
+queued -> running (worker)      optimize --job-id N ; suivi dans l'onglet 5 (étape en cours, journal)
 running -> done                 report.json final ; rechargement des codecs par new_done_jobs
-                                variantes ok -> visibles dans Tester et Valider
-running -> failed / cancelled / interrupted -> requeue : recommence le job
+                                variantes ok -> visibles dans Tester et Valider, et dans le détail du job (onglet 5)
+running -> failed / cancelled / interrupted -> requeue (bouton Relancer de l'onglet 5) : recommence le job
 ```
 
 `codecs/aidge_variants.py` lit `outputs/optim/*/report.json` sans importer Aidge, et :
@@ -475,10 +480,22 @@ Fonctions pures et adaptateurs Gradio fins, comme `ui_training.py`, avec les aid
 
 - **Formulaire** : codec et niveaux, tuile, recettes (**mixte coché par défaut**), clipping, par canal, nombre d'images et jeu de calibration, export et compilation.
 - **Analyser** : opérateurs (dont `Sqrt` non pris en charge), nœuds, pic mémoire face à la BRAM, et phrase d'explication.
-- **Lancer** : un job par niveau coché.
+- **Lancer** : un job par niveau coché. Le menu du suivi se place sur le premier job déposé : l'utilisateur reste dans l'onglet.
+- **Suivi des optimisations** (jobs `optim` seulement), rafraîchi toutes les `REFRESH_S` secondes comme Suivre :
+  - `optim_jobs_table(store)` : colonnes `JOBS_COLUMNS` (n°, nom, auteur, statut, λ, N, tuile, recettes, progression,
+    étape en cours, créé le, terminé le). La progression est `last_step / steps` (étapes du pipeline, § 5), l'étape en
+    cours est la dernière métrique `stage` du job (`current_stage`). Pas de temps restant : les étapes n'ont pas la même durée.
+  - Sélection d'un job (`job_choices(store, "optim")`) : `optim_job_details` renvoie la synthèse (`optim_job_summary` :
+    statut, étape, checkpoint, tuile, recettes, calibration, dates, résultat par recette de `report.json`, erreur), la fin de
+    `train.log`, le tableau des variantes **de ce job** et ses fichiers à télécharger (zip de l'export C++, `main.c` pour LoCod).
+  - **Annuler** (case de confirmation) et **Relancer** : `cancel_job` et `requeue_job` de `ui_training`, mêmes règles que
+    Suivre. Une optimisation annulée s'arrête à la fin de l'étape en cours ; relancée, elle recommence depuis le début (§ 5).
+  - Les rapports (alertes, tableau de toutes les variantes, BD-rate, liste de tous les fichiers) sont relus quand l'ensemble
+    des optimisations terminées change, ou sur « Actualiser ».
 - **Tableau des variantes** : recette, statut, nœuds, pic face à la BRAM, poids, Δbpp, ΔPSNR, BD-rate (ou « n niveaux sur 4 », ou « courbe non monotone »), mention « série indicative », taille du binaire, état de l'export, taux de symboles identiques face à Aidge et, pour information, face à PyTorch.
 - **Alerte** quand `int8` est `sans_effet` : « Aidge 0.10.1 ne sait pas quantifier la GDN. Le graphe n'a pas changé. La variante mixte garde la GDN en flottant et quantifie les convolutions. »
-- **Téléchargement** du zip de l'export C.
+- **Téléchargement** du zip de l'export C : depuis le détail du job choisi, et dans la carte « Code C à télécharger », qui
+  liste tous les rapports, y compris ceux produits en ligne de commande (`--config`, sans job dans la base).
 
 ---
 
