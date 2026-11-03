@@ -477,25 +477,55 @@ automatiquement.
 ## 9. Interface `ui_optim.py`
 
 Fonctions pures et adaptateurs Gradio fins, comme `ui_training.py`, avec les aides `ui_style` (`intro`, `card`, `hint`).
+Le public : des étudiants de l'équipe, pas forcément experts en quantification ni en Aidge. D'où un parcours en cinq
+étapes numérotées, une phrase d'explication par recette, réglage et métrique, des états vides qui disent quoi faire et une
+aide repliée (`HELP_MD` : quantifier, PTQ, GDN, calibration, écrêtage, tuile, BRAM, Δ, BD-rate, export vérifié, LoCod).
 
-- **Formulaire** : codec et niveaux, tuile, recettes (**mixte coché par défaut**), clipping, par canal, nombre d'images et jeu de calibration, export et compilation.
-- **Analyser** : opérateurs (dont `Sqrt` non pris en charge), nœuds, pic mémoire face à la BRAM, et phrase d'explication.
-- **Lancer** : un job par niveau coché. Le menu du suivi se place sur le premier job déposé : l'utilisateur reste dans l'onglet.
+Disposition, de haut en bas : bandeau (`optim_banner` : worker, et Aidge absent de l'environnement de l'interface), puis
+à gauche **1. Modèle à optimiser**, **2. Recette**, **3. Analyser ou lancer** ; à droite la carte **Analyse** et
+**4. Suivre les optimisations**, visible sans défiler après « Lancer » ; en dessous **5. Comparer les variantes**,
+**Télécharger le code** et l'aide.
+
+- **Formulaire** : modèles (niveaux, le premier coché d'office ; `sources_hint` sans checkpoint renvoie vers 1. Entraîner),
+  recettes expliquées (`RECIPE_CHOICES`, **mixte seule cochée par défaut**, fp32 toujours ajoutée par la config et dite telle),
+  jeu de calibration (`calibration_hint`), tuile (`TILE_LABELS`, 64 conseillée). Dans « Réglages avancés », replié : clipping
+  (`CLIPPING_CHOICES`, expliqués), par canal, nombre de tuiles de calibration et d'images, export et compilation, série
+  indicative. Nom de la série et auteur à l'étape 3, à côté des boutons. Aucune recette cochée : refus avec un message.
+- **Analyser** (`analysis_config` : le premier checkpoint coché, dit tel quel s'il y en a plusieurs) : verdict en tête (poids et
+  pic de la recette mixte dans la BRAM ou non), opérateurs (dont `Sqrt` non pris en charge), pic mémoire et poids face à la
+  BRAM, et phrase d'explication. Aidge absent : message clair (`friendly_error`) au lieu de la trace Python.
+- **Lancer** : un job par niveau coché. Le message (`launch_message`) donne les numéros et dit où suivre ; le menu du suivi se
+  place sur le premier job déposé : l'utilisateur reste dans l'onglet, et le suivi est à côté du formulaire.
 - **Suivi des optimisations** (jobs `optim` seulement), rafraîchi toutes les `REFRESH_S` secondes comme Suivre :
   - `optim_jobs_table(store)` : colonnes `JOBS_COLUMNS` (n°, nom, auteur, statut, λ, N, tuile, recettes, progression,
     étape en cours, créé le, terminé le). La progression est `last_step / steps` (étapes du pipeline, § 5), l'étape en
     cours est la dernière métrique `stage` du job (`current_stage`). Pas de temps restant : les étapes n'ont pas la même durée.
   - Sélection d'un job (`job_choices(store, "optim")`) : `optim_job_details` renvoie la synthèse (`optim_job_summary` :
-    statut, étape, checkpoint, tuile, recettes, calibration, dates, résultat par recette de `report.json`, erreur), la fin de
-    `train.log`, le tableau des variantes **de ce job** et ses fichiers à télécharger (zip de l'export C++, `main.c` pour LoCod).
+    statut, étape, checkpoint, tuile, recettes, calibration, dates, verdict par recette de `report.json`, erreur, et la cause
+    en clair si le worker n'a pas Aidge), la fin de `train.log`, le tableau synthétique des variantes **de ce job** et ses
+    fichiers (zip de l'export C++, `main.c` pour LoCod), présélectionnés dans « Télécharger le code ». Aucun job : `NO_JOB_YET`
+    dit de régler les étapes 1 à 3 puis de cliquer sur Lancer.
   - **Annuler** (case de confirmation) et **Relancer** : `cancel_job` et `requeue_job` de `ui_training`, mêmes règles que
     Suivre. Une optimisation annulée s'arrête à la fin de l'étape en cours ; relancée, elle recommence depuis le début (§ 5).
   - Les rapports (alertes, tableau de toutes les variantes, BD-rate, liste de tous les fichiers) sont relus quand l'ensemble
     des optimisations terminées change, ou sur « Actualiser ».
-- **Tableau des variantes** : recette, statut, nœuds, pic face à la BRAM, poids, Δbpp, ΔPSNR, BD-rate (ou « n niveaux sur 4 », ou « courbe non monotone »), mention « série indicative », taille du binaire, état de l'export, taux de symboles identiques face à Aidge et, pour information, face à PyTorch.
-- **Alerte** quand `int8` est `sans_effet` : « Aidge 0.10.1 ne sait pas quantifier la GDN. Le graphe n'a pas changé. La variante mixte garde la GDN en flottant et quantifie les convolutions. »
-- **Téléchargement** du zip de l'export C : depuis le détail du job choisi, et dans la carte « Code C à télécharger », qui
-  liste tous les rapports, y compris ceux produits en ligne de commande (`--config`, sans job dans la base).
+- **5. Comparer les variantes**, tous les rapports, jobs et ligne de commande (`--config`, sans job dans la base) :
+  - **Tableau synthétique** (`summary_table`, colonnes `SUMMARY_COLUMNS`) : origine (« n°12 » ou « ligne de commande »), série,
+    λ, modèle (N et tuile), recette, **verdict** (`results.variant_verdict` : utilisable, SANS EFFET, ÉCHEC et sa raison),
+    mémoire de travail et poids dans le FPGA en % de la BRAM, Δ débit et Δ PSNR (« référence » pour fp32), état de l'export
+    C++ en clair (`results.export_text` : « vérifié : 100 % identique à Aidge », « faux : … », « produit, non vérifié (pas de
+    g++) ») et du fichier LoCod (`results.locod_text`).
+  - **BD-rate** face à fp32 (ou « n niveaux sur 4 », ou « courbe non monotone » dans la colonne raison), mention « série
+    indicative », et une phrase qui dit comment l'obtenir quand il manque (`bd_hint`).
+  - Replié dans « Détails » : écarts point par point et **tableau complet** (`variants_table`, colonnes `TABLE_COLUMNS` :
+    nœuds, pic, poids, Δbpp, ΔPSNR, taille du binaire, état de l'export, taux de symboles identiques face à Aidge et, pour
+    information, face à PyTorch).
+  - Aucun rapport : `results_hint` dit que les variantes s'afficheront à la fin d'une optimisation.
+- **Alerte** quand `int8` est `sans_effet` : « Aidge 0.10.1 ne sait pas quantifier la GDN : le graphe n'a pas changé. Ce n'est
+  pas une erreur de votre part : la recette mixte garde la GDN en flottant et quantifie les convolutions. » Les variantes en
+  échec sont listées sous elle, avec leur raison.
+- **Téléchargement** : une seule zone, « Télécharger le code », dont le menu liste les fichiers de tous les rapports (jobs et
+  ligne de commande), du plus récent au plus ancien. Choisir un job dans le suivi y présélectionne son premier fichier.
 
 ---
 

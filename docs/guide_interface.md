@@ -179,54 +179,59 @@ Le banc d'essai est décrit dans le [README](../README.md#banc-dessai-de-compres
 
 Sur la carte, la mémoire et le calcul sont comptés. Un modèle entraîné utilise des nombres à virgule, coûteux et volumineux. Cet onglet demande à l'outil **Aidge** de le préparer : il remplace ces nombres par de petits entiers là où c'est possible (on dit « quantifier »), vérifie ce que cela coûte en qualité, et produit le code à mettre sur la carte.
 
+L'onglet se lit de haut en bas, en cinq étapes numérotées. Les étapes 1 à 3 sont à gauche, l'analyse et le suivi (étape 4) à droite, la comparaison des variantes et le téléchargement du code (étape 5) en dessous. Le vocabulaire (quantifier, calibration, BRAM, BD-rate…) est expliqué dans la section repliée **Aide** en bas de l'onglet. Le bandeau en haut dit si le worker tourne, et prévient si Aidge manque sur la machine de l'interface.
+
 ### Les recettes
 
 | Recette | Ce qu'elle fait | Résultat attendu |
 | :- | :- | :- |
-| **mixte** (conseillée, cochée par défaut) | Quantifie les grandes opérations de filtrage (les convolutions), et garde en nombres à virgule la partie de normalisation (la GDN) | Beaucoup moins de mémoire pour un coût de qualité faible |
-| **fp32** | Ne quantifie rien | Sert de point de comparaison : elle est toujours calculée |
-| **int8** | Essaie de quantifier tout le modèle | Aujourd'hui, l'alerte **SANS EFFET** s'affiche : Aidge ne sait pas encore quantifier la GDN. Ce n'est pas une panne de votre part |
+| **mixte** (conseillée, seule cochée par défaut) | Quantifie les grandes opérations de filtrage (les convolutions), et garde en nombres à virgule la partie de normalisation (la GDN) | Beaucoup moins de mémoire pour un coût de qualité faible |
+| **fp32** | Ne quantifie rien | Sert de point de comparaison : elle est **toujours calculée**, même décochée |
+| **int8** | Essaie de quantifier tout le modèle | Aujourd'hui, le verdict **SANS EFFET** s'affiche : Aidge ne sait pas encore quantifier la GDN. Ce n'est pas une panne de votre part |
 
 ### Pas à pas
 
-1. Donnez un nom à l'optimisation et cochez un ou plusieurs modèles. Cochez plusieurs niveaux de λ pour obtenir une courbe.
-2. Choisissez les **images de calibration** : Aidge s'en sert pour régler les entiers. Prenez des images proches de ce que verra le rover.
-3. Gardez la **taille de tuile** de 64 si vous n'avez pas de raison d'en changer. L'image est découpée en carrés de cette taille, traités un par un : c'est ce qui limite la mémoire.
-4. Cliquez sur **Analyser** : en quelques secondes, vous voyez si le modèle tiendra en mémoire.
-5. Cliquez sur **Lancer** : un job par modèle coché part dans la file, comme un entraînement. Vous restez dans l'onglet : le job apparaît plus bas, dans **Suivi des optimisations**. Comptez plusieurs minutes par modèle, davantage avec la compilation et les 24 images d'évaluation.
+1. **Modèle à optimiser** : cochez un ou plusieurs modèles entraînés (le premier est coché d'office). Cochez plusieurs λ du même entraînement pour obtenir une courbe, au moins 4 pour un BD-rate. S'il n'y a aucun modèle, l'onglet vous renvoie vers **1. Entraîner**.
+2. **Recette** : gardez **mixte**. Choisissez les **images de calibration** : Aidge s'en sert pour régler les entiers, prenez des images proches de ce que verra le rover. Gardez la **taille de tuile** de 64 (conseillée) si vous n'avez pas de raison d'en changer : l'image est découpée en carrés de cette taille, traités un par un, et c'est ce qui limite la mémoire. Les **Réglages avancés** (écrêtage, quantification par canal, nombre de tuiles de calibration et d'images d'évaluation, génération et vérification du code, série indicative) ont des valeurs par défaut qui conviennent à un premier essai.
+3. **Analyser ou lancer** : donnez un **nom à la série** (il regroupe les λ en une courbe dans Tester, Valider et le BD-rate).
+   - **Analyser** : en quelques secondes, sans rien lancer ni enregistrer, la carte **Analyse** à droite dit si le premier modèle coché tiendra dans la mémoire du FPGA (✅ ou ❌), avec le détail des mémoires.
+   - **Lancer** : un job par modèle coché part dans la file, comme un entraînement. Un message confirme les numéros des jobs, et le premier est sélectionné tout de suite dans **4. Suivre les optimisations**, à droite. Comptez plusieurs minutes par modèle, davantage avec la compilation et les 24 images d'évaluation.
 
 Une fois le job terminé, la variante apparaît dans les onglets **3. Tester** et **4. Valider**, sous un nom qui commence par « Aidge ». Dans ces onglets, elle s'exécute toujours avec Aidge, quel que soit le moteur choisi : c'est plus lent, et c'est voulu.
 
-### Suivre une optimisation
+### Suivre une optimisation (étape 4)
 
-La section **Suivi des optimisations**, en bas de l'onglet, se rafraîchit toute seule toutes les 5 secondes. Comme pour un entraînement, vous pouvez fermer la page : l'optimisation continue dans le worker.
+La carte **4. Suivre les optimisations**, à droite du formulaire, se rafraîchit toute seule toutes les 5 secondes. Comme pour un entraînement, vous pouvez fermer la page : l'optimisation continue dans le worker.
 
 - **Le tableau** liste les optimisations, de la plus récente à la plus ancienne : statut, auteur, λ, tuile, recettes, progression, étape en cours (par exemple « mixte : export »), dates de création et de fin. Les statuts sont ceux des entraînements ([section 4](#les-statuts)).
-- **Le menu « Optimisation à examiner »** affiche le résumé du job choisi : réglages, étape en cours, et le résultat de chaque recette une fois le job terminé. À droite, **Résultat de cette optimisation** donne le tableau de ses variantes et ses fichiers à télécharger. La section **Journal** contient les 50 dernières lignes du journal.
+- **Le menu « Optimisation à examiner »** affiche le résumé du job choisi : réglages, étape en cours, et le verdict de chaque recette une fois le job terminé, puis le tableau de ses variantes. Si le job a produit du code, celui-ci est présélectionné dans **Télécharger le code**, plus bas. La section **Journal** contient les 50 dernières lignes du journal.
 - **Annuler** : ouvrez la section « Annuler cette optimisation », cochez « Je confirme l'annulation », puis cliquez sur **Annuler**. Un job en attente est annulé aussitôt ; un job en cours s'arrête à la fin de l'étape en cours, ce qui peut prendre quelques minutes pendant une compilation.
 - **Relancer** : disponible pour une optimisation En échec, Annulée ou Interrompue. Contrairement à un entraînement, elle **recommence depuis le début**.
 
-### Lire les résultats
+### Lire les résultats (étape 5)
+
+La carte **5. Comparer les variantes** reprend toutes les optimisations terminées, y compris celles lancées en ligne de commande (origine « ligne de commande »). Le tableau donne une ligne par variante :
 
 | Colonne | Signification |
 | :- | :- |
-| **pic / BRAM** | Mémoire de travail nécessaire, comparée à la mémoire rapide du FPGA (la BRAM, 615 Kio sur notre carte). Au-delà de 100 %, cela ne tient pas |
-| **poids conv / BRAM** | Place des poids qui restent dans le FPGA, la GDN étant calculée par le processeur |
-| **Δbpp** | Écart de débit face à fp32. +3 % : le fichier compressé est 3 % plus gros |
-| **ΔPSNR** | Écart de qualité face à fp32. -0,05 dB : une perte très faible |
-| **identiques Aidge** | Le code généré donne-t-il les mêmes résultats qu'Aidge ? **En dessous de 99 %, la variante passe en ÉCHEC** : ce code ne doit pas partir sur la carte |
-| **identiques PyTorch** | À titre d'information : l'écart avec le modèle d'origine, normal pour une variante quantifiée. C'est Δbpp et ΔPSNR qui disent si cet écart est gênant |
+| **verdict** | ✅ **utilisable** ; ⚠️ **SANS EFFET** (rien n'a été quantifié, normal pour int8) ; ❌ **ÉCHEC**, avec la raison |
+| **mémoire de travail / BRAM (%)** | Mémoire nécessaire aux calculs, comparée à la mémoire rapide du FPGA (la BRAM, 615 Kio sur notre carte). Au-delà de 100 %, cela ne tient pas |
+| **poids dans le FPGA / BRAM (%)** | Place des poids qui restent dans le FPGA, la GDN étant calculée par le processeur |
+| **Δ débit (%)** | Écart de débit face à fp32 (« référence » sur la ligne fp32). +3 % : le fichier compressé est 3 % plus gros |
+| **Δ PSNR (dB)** | Écart de qualité face à fp32. -0,05 dB : une perte très faible |
+| **export C++** | « vérifié : 100 % identique à Aidge » : le code a été compilé et exécuté, et donne les mêmes résultats qu'Aidge. **En dessous de 99 %, il est marqué « faux » et la variante passe en ÉCHEC** : ce code ne doit pas partir sur la carte. « produit, non vérifié » : pas de compilateur sur la machine |
+| **fichier LoCod** | État du fichier C pour la chaîne FPGA (recette mixte seulement) |
 
-**BD-rate** : l'écart de débit à qualité égale sur toute la courbe, face à fp32. Il faut au moins 4 modèles de λ différents, et des courbes régulières, sinon la raison s'affiche à la place du chiffre. Les écarts point par point restent toujours affichés. La mention **indicative** rappelle que les modèles n'ont pas eu le même entraînement.
+**BD-rate** : l'écart de débit à qualité égale sur toute la courbe, face à fp32. Il faut au moins 4 modèles de λ différents sous le même nom de série, et des courbes régulières, sinon la colonne **raison** dit ce qui manque. La mention **indicative** rappelle que les modèles n'ont pas eu le même entraînement. La section repliée **Détails** donne les écarts point par point et le tableau complet, avec les colonnes techniques (symboles identiques à Aidge et, pour information, à PyTorch, taille du binaire, poids).
 
 ### Récupérer le code
 
-Les fichiers d'une optimisation sont dans **Résultat de cette optimisation**, une fois le job choisi. Le menu **Code C à télécharger**, en haut à droite, regroupe ceux de toutes les optimisations, y compris celles lancées en ligne de commande. On y trouve :
+Une seule zone, **Télécharger le code**, sous les résultats : son menu regroupe le code de toutes les optimisations, jobs comme ligne de commande, du plus récent au plus ancien. Choisir une optimisation à l'étape 4 y présélectionne son code. On y trouve :
 
 - **export C++ (zip)** : le code d'Aidge, à compiler pour le processeur de la carte ;
 - **fichier C pour LoCod** : un seul fichier `main.c`, pour la chaîne FPGA. Les convolutions y sont des accélérateurs, et la GDN reste sur le processeur.
 
-Sans compilateur sur la machine, le code est quand même produit, mais non vérifié : la colonne **export** indique `non_compile`.
+Sans compilateur sur la machine, le code est quand même produit, mais non vérifié : la colonne **export C++** indique « produit, non vérifié (pas de g++) ».
 
 ## 8. Quand quelque chose ne va pas
 
@@ -240,7 +245,8 @@ Sans compilateur sur la machine, le code est quand même produit, mais non véri
 | Le navigateur n'affiche pas l'interface AIDGE | Voir [section 1](#1-démarrer-la-plateforme) : le port 7860 est occupé par un autre programme. |
 | Un message d'erreur s'affiche dans une fenêtre | Il explique en français ce qui manque (nom du run vide, aucun λ coché, jeu d'images absent, etc.). |
 | Une variante affiche SANS EFFET | C'est normal pour `int8` tant qu'Aidge ne sait pas quantifier la GDN : utilisez `mixte`. |
-| Une variante affiche ÉCHEC | Lisez la raison au-dessus du tableau. Si le code généré diffère d'Aidge, ne l'utilisez pas et transmettez le numéro du job à l'équipe. |
+| Une variante affiche ÉCHEC | Lisez la raison dans la colonne **verdict** ou au-dessus du tableau. Si le code généré diffère d'Aidge (« faux »), ne l'utilisez pas et transmettez le numéro du job à l'équipe. |
+| Le bandeau de l'onglet 5 dit « Aidge n'est pas installé », ou **Analyser** le répète | L'environnement de l'interface n'a pas Aidge : installez `requirements.txt` (`scripts\setup_venv.ps1`) ou utilisez l'image Docker. Un job lancé échoue de même si le worker n'a pas Aidge : son résumé le dit, corrigez puis **Relancer**. |
 
 Si le problème persiste, notez le numéro du job et le message d'erreur et transmettez-les à l'équipe.
 
