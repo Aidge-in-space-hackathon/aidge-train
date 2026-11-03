@@ -11,11 +11,12 @@ Pour ajouter un modèle d'entropie (mean-scale hyperprior, contexte autorégress
 d'écrire une nouvelle sous-classe de LatentCoding et de l'affecter à l'attribut @c coding du codec.
 """
 import struct
+import time
 
 import numpy as np
 import torch
 
-from .entropy import decode_symbols, encode_symbols, make_tables
+from .entropy import decode_symbols, encode_symbols, make_tables, warmup
 from .nn import (HyperpriorOnboard, bits_from_likelihood, freeze, gaussian_likelihood, gaussian_pmfs,
                  scale_indexes)
 
@@ -41,11 +42,14 @@ class LatentCoding:
     def tables(self, model):
         """! @brief Tables de fréquences du modèle, calculées au premier appel puis mises en cache.
 
+        Compile aussi le codeur arithmétique (aidge_in_space.entropy.warmup()) : appelée hors
+        chronométrage, elle garde la compilation JIT de numba hors des temps mesurés.
         @param model  Modèle entraîné.
         @return Tables utilisées par encode() et decode() (format propre à la sous-classe).
         """
         if not hasattr(model, "_ais_tables"):
             model._ais_tables = self._make_tables(model)
+        warmup()
         return model._ais_tables
 
     def _make_tables(self, model):
@@ -62,7 +66,8 @@ class LatentCoding:
                 - @c y_hat    : latents quantifiés, tels que le décodeur les reconstruira ;
                 - @c est_bits : débit estimé en bits (toujours présent) ;
                 - @c data     : flux binaire (bytes), si @p real ;
-                - @c n_esc    : nombre de symboles échappés (hors des tables), si @p real.
+                - @c n_esc    : nombre de symboles échappés (hors des tables), si @p real ;
+                - @c t_entropie : durée du seul codage arithmétique en secondes, si @p real.
         """
         raise NotImplementedError
 
@@ -128,8 +133,10 @@ class HyperpriorCoding(LatentCoding):
         out = {"y_hat": y_hat,
                "est_bits": z_enc["est_bits"] + bits_from_likelihood(gaussian_likelihood(y_hat, scales))}
         if real:
-            y_data, n_esc = encode_symbols(y_hat.to(torch.int64).numpy(), scale_indexes(scales).numpy(),
-                                           gaussian_tables())
+            symbols, idx = y_hat.to(torch.int64).numpy(), scale_indexes(scales).numpy()
+            t0 = time.perf_counter()
+            y_data, n_esc = encode_symbols(symbols, idx, gaussian_tables())
+            out["t_entropie"] = z_enc["t_entropie"] + time.perf_counter() - t0
             out["data"] = struct.pack(">I", len(z_enc["data"])) + z_enc["data"] + y_data
             out["n_esc"] = n_esc + z_enc["n_esc"]
         return out
@@ -185,7 +192,10 @@ def factorized_encode(prior, tables, y, real):
     y_hat = q + med
     out = {"y_hat": y_hat, "est_bits": bits_from_likelihood(prior.likelihood(y_hat))}
     if real:
-        out["data"], out["n_esc"] = encode_symbols(q.to(torch.int64).numpy(), channel_index(q.shape), tables)
+        symbols, idx = q.to(torch.int64).numpy(), channel_index(q.shape)
+        t0 = time.perf_counter()
+        out["data"], out["n_esc"] = encode_symbols(symbols, idx, tables)
+        out["t_entropie"] = time.perf_counter() - t0
     return out
 
 

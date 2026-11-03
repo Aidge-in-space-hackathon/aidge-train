@@ -43,7 +43,8 @@ class Result:
     ## @c "réel" (taille du fichier produit) ou @c "estimé" (entropie prédite par le modèle).
     rate_kind: str
     ## Temps en secondes. Clés : @c "encodage" (tout ce qui tourne à bord), @c "analyse"
-    ## (transformée d'analyse seule, codecs appris) et @c "décodage".
+    ## (transformée d'analyse seule, codecs appris), @c "décodage" et, pour un codec appris en débit
+    ## réel, @c "codage entropique" (codeur arithmétique seul, compris dans @c "encodage").
     timings: dict = field(default_factory=dict)
     ## Informations complémentaires affichées telles quelles (forme du latent, vérification du décodage...).
     info: dict = field(default_factory=dict)
@@ -276,6 +277,8 @@ class LearnedCodec(Codec):
         if model.in_ch == 3 and img.ndim == 2:
             info["note"] = "image grise répliquée sur 3 canaux"
         timings = {"encodage": t_analysis + t_coding, "analyse": t_analysis, "décodage": t_decoding}
+        if "t_entropie" in enc:                       # absente d'un LatentCoding qui ne la mesure pas
+            timings["codage entropique"] = enc["t_entropie"]
         return Result(from_tensor(x_hat, mode), bits, "réel" if real_rate else "estimé", timings, info)
 
     def decode_latents(self, model, stream):
