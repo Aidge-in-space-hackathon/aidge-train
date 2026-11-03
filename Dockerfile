@@ -9,10 +9,13 @@ FROM python:3.11-slim
 # la CI construit l'image CPU (tests) et les deux variantes publiées sur GHCR.
 ARG TORCH_INDEX=https://download.pytorch.org/whl/cpu
 
+# NUMBA_CACHE_DIR : noyaux compilés du codeur arithmétique (aidge_in_space/entropy.py), dans ~/.cache
+# (inscriptible par aidge, volume nommé en production) plutôt qu'à côté du code, monté depuis l'hôte en local.
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1
+    PIP_DISABLE_PIP_VERSION_CHECK=1 \
+    NUMBA_CACHE_DIR=/home/aidge/.cache/numba
 
 # g++ compile et vérifie les exports C de l'onglet Optimisation Aidge (sans CMake : voir aidge_in_space/optim/export.py)
 RUN apt-get update \
