@@ -345,14 +345,16 @@ class JobStore:
             raise KeyError(job_id)
         return _row_to_job(row)
 
-    def list_jobs(self, limit: int | None = 200, statuses: Iterable[str] | None = None) -> list[Job]:
+    def list_jobs(self, limit: int | None = 200, statuses: Iterable[str] | None = None,
+                  kind: str | None = None) -> list[Job]:
         """! @brief Liste les jobs du plus récent au plus ancien.
         @param limit Nombre maximal de jobs ; None pour ne pas limiter.
         @param statuses Statuts à garder (parmi STATUSES) ; None pour tous.
+        @param kind Type de job à garder (parmi JOB_KINDS) ; None pour tous.
         @return Les jobs, id décroissant.
-        @throws ValueError Si un statut est inconnu.
+        @throws ValueError Si un statut ou le type est inconnu.
         """
-        sql = "SELECT * FROM jobs"
+        where: list[str] = []
         params: list = []
         if statuses is not None:
             wanted = list(dict.fromkeys(statuses))
@@ -361,9 +363,14 @@ class JobStore:
                 raise ValueError(f"statut inconnu : {bad[0]!r}")
             if not wanted:
                 return []
-            sql += " WHERE status IN (" + ",".join("?" * len(wanted)) + ")"
+            where.append("status IN (" + ",".join("?" * len(wanted)) + ")")
             params += wanted
-        sql += " ORDER BY id DESC"
+        if kind is not None:
+            if kind not in JOB_KINDS:
+                raise ValueError(f"type de job inconnu : {kind!r}")
+            where.append("kind = ?")
+            params.append(kind)
+        sql = "SELECT * FROM jobs" + (" WHERE " + " AND ".join(where) if where else "") + " ORDER BY id DESC"
         if limit is not None:
             sql += " LIMIT ?"
             params.append(int(limit))

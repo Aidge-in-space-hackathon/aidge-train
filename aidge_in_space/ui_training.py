@@ -27,7 +27,6 @@ from . import config, ui_style
 from .dataset_catalog import CATALOG, download_archive
 from .images import IMAGE_EXTS, MODE_LABELS, list_images
 from .jobs import STATUS_LABELS, JobStore
-from .optim import results
 from .training.imaging import to_8bit
 from .training.config import PRESETS, TrainConfig, schedule_for
 
@@ -60,10 +59,10 @@ WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10
 REFRESH_S = 5
 ## Nombre de vignettes montrées par jeu d'images.
 N_SAMPLES = 6
-## Colonnes du tableau des jobs.
-TABLE_COLUMNS = ["n°", "type", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)", "temps restant", "créé le"]
-## Libellés des types de jobs.
-KIND_LABELS = {"train": "Entraînement", "optim": "Aidge"}
+## Colonnes du tableau des entraînements.
+TABLE_COLUMNS = ["n°", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)", "temps restant", "créé le"]
+## Ce que traite chaque type de job, pour les messages (« les entraînements restent en attente »).
+KIND_NOUNS = {"train": "entraînements", "optim": "optimisations Aidge"}
 ## Octets lus en fin de train.log pour en extraire les dernières lignes.
 LOG_TAIL_BYTES = 65536
 ## Nombre maximal de messages d'avertissement affichés en fenêtre après un envoi.
@@ -659,14 +658,14 @@ def job_progress(job, metrics_train, now):
     return pct, eta
 
 
-def _status_label(job):
+def status_label(job):
     """! @brief Statut affiché d'un job (avec la demande d'annulation en cours)."""
     if job.status == "running" and job.cancel_requested:
         return "Annulation demandée"
     return STATUS_LABELS[job.status]
 
 
-def _lmbda_text(v):
+def lmbda_text(v):
     """! @brief λ affiché sans zéros inutiles."""
     return f"{v:g}"
 
@@ -677,19 +676,25 @@ OPEN_STATUSES = ("queued", "running", "failed", "cancelled", "interrupted")
 RECENT_JOBS = 200
 
 
-def visible_jobs(store):
+def visible_jobs(store, kind=None):
     """! @brief Jobs à afficher : les RECENT_JOBS plus récents et tous les jobs non terminés, sans doublon.
 
     @param store  JobStore.
+    @param kind   Type de job (« train », « optim ») ; None : tous, par exemple pour détecter les jobs terminés.
     @return Liste de Job, id décroissant.
     """
-    jobs = {j.id: j for j in store.list_jobs(limit=RECENT_JOBS)}
-    jobs.update({j.id: j for j in store.list_jobs(limit=None, statuses=OPEN_STATUSES)})
+    jobs = {j.id: j for j in store.list_jobs(limit=RECENT_JOBS, kind=kind)}
+    jobs.update({j.id: j for j in store.list_jobs(limit=None, statuses=OPEN_STATUSES, kind=kind)})
     return [jobs[k] for k in sorted(jobs, reverse=True)]
 
 
+def format_date(seconds):
+    """! @brief Date locale lisible (« 2026-11-03 14:05 »), ou « - » si elle est inconnue."""
+    return "-" if seconds is None else time.strftime("%Y-%m-%d %H:%M", time.localtime(seconds))
+
+
 def jobs_table(store, now=None):
-    """! @brief Tableau des jobs, du plus récent au plus ancien.
+    """! @brief Tableau des entraînements, du plus récent au plus ancien. Les optimisations Aidge sont dans l'onglet 5.
 
     @param store  JobStore.
     @param now    Heure courante ; None : time.time().
@@ -697,23 +702,27 @@ def jobs_table(store, now=None):
     """
     now = time.time() if now is None else now
     rows = []
-    for job in visible_jobs(store):
+    for job in visible_jobs(store, "train"):
         train = store.metrics(job.id, "train") if job.status == "running" else []
         pct, eta = job_progress(job, train, now)
-        rows.append({"n°": job.id, "type": KIND_LABELS.get(job.kind, job.kind), "nom": job.name, "auteur": job.author, "statut": _status_label(job),
-                     "λ": _lmbda_text(job.lmbda), "N": job.N, "mode": "gris" if job.in_ch == 1 else "rgb",
-                     "progression (%)": pct, "temps restant": format_duration(eta),
-                     "créé le": time.strftime("%Y-%m-%d %H:%M", time.localtime(job.created_at))})
+        rows.append({"n°": job.id, "nom": job.name, "auteur": job.author, "statut": status_label(job),
+                     "λ": lmbda_text(job.lmbda), "N": job.N, "mode": "gris" if job.in_ch == 1 else "rgb",
+                     "progression (%)": pct, "temps restant": format_duration(eta), "créé le": format_date(job.created_at)})
     return pd.DataFrame(rows, columns=TABLE_COLUMNS)
 
 
-def job_choices(store):
-    """! @brief Jobs pour un menu : couples (« n°12 · nom · λ=2048 · En cours », identifiant)."""
-    return [(f"n°{j.id} · {'Aidge · ' if j.kind == 'optim' else ''}{j.name} · λ={_lmbda_text(j.lmbda)} · {_status_label(j)}", j.id)
-            for j in visible_jobs(store)]
+def job_choices(store, kind="train"):
+    """! @brief Jobs d'un type pour un menu : couples (« n°12 · nom · λ=2048 · En cours », identifiant).
+
+    @param store  JobStore.
+    @param kind   Type de job : « train » pour l'onglet Suivre, « optim » pour l'onglet 5.
+    @return Liste de couples, du plus récent au plus ancien.
+    """
+    return [(f"n°{j.id} · {j.name} · λ={lmbda_text(j.lmbda)} · {status_label(j)}", j.id)
+            for j in visible_jobs(store, kind)]
 
 
-def _log_tail(path, n_lines):
+def log_tail(path, n_lines):
     """! @brief Dernières lignes d'un journal ; « (journal vide) » s'il est absent ou vide."""
     try:
         with open(path, "rb") as f:
@@ -756,26 +765,12 @@ def _curves(metrics):
     return fig
 
 
-def _optim_summary(job):
-    """! @brief Synthèse Markdown d'une optimisation Aidge : statut, source, résultat par recette, erreur."""
-    source = job.config.get("source", {})
-    lines = [f"**n°{job.id} · {job.name}** ({job.author or 'auteur inconnu'}) : **{_status_label(job)}**, "
-             f"étape {job.last_step} sur {job.steps}.",
-             f"- Optimisation Aidge de `{source.get('checkpoint', '?')}`, N={job.N}, λ={_lmbda_text(job.lmbda)}.",
-             results.summary_markdown(results.report_for_job(job.id))]
-    if job.error:
-        lines.append(f"- Message d'erreur :\n\n```\n{job.error}\n```")
-    return "\n".join(lines)
-
-
 def _summary(job):
-    """! @brief Synthèse Markdown d'un job : statut, réglages, checkpoint, erreur."""
-    if job.kind == "optim":
-        return _optim_summary(job)
+    """! @brief Synthèse Markdown d'un entraînement : statut, réglages, checkpoint, erreur."""
     c = job.config
-    lines = [f"**n°{job.id} · {job.name}** ({job.author or 'auteur inconnu'}) : **{_status_label(job)}**, "
+    lines = [f"**n°{job.id} · {job.name}** ({job.author or 'auteur inconnu'}) : **{status_label(job)}**, "
              f"pas {job.last_step} sur {job.steps}.",
-             f"- Réglages : {'gris' if job.in_ch == 1 else 'RGB'}, N={job.N}, λ={_lmbda_text(job.lmbda)}, "
+             f"- Réglages : {'gris' if job.in_ch == 1 else 'RGB'}, N={job.N}, λ={lmbda_text(job.lmbda)}, "
              f"batch {c.get('batch_size', '?')}, lr {c.get('lr', '?')}, patchs {c.get('crop', '?')} px, "
              f"graine {c.get('seed', '?')}.",
              f"- Images d'entraînement : `{c.get('train_dir', '?')}`."]
@@ -787,7 +782,7 @@ def _summary(job):
 
 
 def job_details(store, job_id, n_log_lines=50):
-    """! @brief Détail d'un job : courbes, fin du journal, synthèse.
+    """! @brief Détail d'un entraînement : courbes, fin du journal, synthèse.
 
     @param store        JobStore.
     @param job_id       Identifiant, ou None.
@@ -800,7 +795,7 @@ def job_details(store, job_id, n_log_lines=50):
         return None, "", "Sélectionnez un job."
     job = store.get(int(job_id))
     metrics = store.metrics(job.id)
-    return None if job.kind == "optim" else _curves(metrics), _log_tail(store.job_dir(job.id) / "train.log", n_log_lines), _summary(job)
+    return _curves(metrics), log_tail(store.job_dir(job.id) / "train.log", n_log_lines), _summary(job)
 
 
 def job_model_file(store, job_id):
@@ -831,21 +826,47 @@ def cancel_job(store, job_id, confirmed):
     """
     if not confirmed:
         raise ValueError("Cochez la case de confirmation pour annuler.")
+    kind = store.get(int(job_id)).kind
     result = store.cancel(int(job_id))
     if result == "cancelled":
         return f"Le job n°{job_id} était en attente : il est annulé."
+    if kind == "optim":
+        return f"Annulation demandée pour le job n°{job_id} : il s'arrêtera à la fin de l'étape en cours."
     return f"Annulation demandée pour le job n°{job_id} : il s'arrêtera dans quelques secondes."
 
 
 def requeue_job(store, job_id):
-    """! @brief Remet en file un job en échec, annulé ou interrompu (il reprend à son dernier checkpoint).
+    """! @brief Remet en file un job en échec, annulé ou interrompu.
 
+    Un entraînement reprend à son dernier checkpoint ; une optimisation Aidge recommence depuis le début.
     @return Message de confirmation.
     @throws ValueError si le job n'est pas relançable.
     @throws KeyError si le job est inconnu.
     """
+    kind = store.get(int(job_id)).kind
     store.requeue(int(job_id))
+    if kind == "optim":
+        return f"Le job n°{job_id} est de nouveau en attente : l'optimisation recommencera depuis le début."
     return f"Le job n°{job_id} est de nouveau en attente : il reprendra à son dernier point de sauvegarde."
+
+
+def job_action(action, store, job_id, *args, missing="Sélectionnez d'abord un entraînement."):
+    """! @brief Adaptateur Gradio commun des actions sur un job (cancel_job, requeue_job, duplicate_config).
+
+    @param action   Fonction pure appelée comme @c action(store, job_id, *args).
+    @param store    JobStore.
+    @param job_id   Job choisi, ou None.
+    @param args     Arguments suivants de @p action.
+    @param missing  Message quand aucun job n'est choisi.
+    @return Le résultat de @p action.
+    @throws gradio.Error avec un message simple si aucun job n'est choisi, si l'action est refusée ou si le job a disparu.
+    """
+    if job_id is None:
+        raise gr.Error(missing)
+    try:
+        return action(store, job_id, *args)
+    except (ValueError, KeyError) as e:
+        raise gr.Error(str(e.args[0]) if isinstance(e, ValueError) else "Ce job n'existe plus.") from None
 
 
 def duplicate_config(store, job_id):
@@ -868,15 +889,23 @@ def duplicate_config(store, job_id):
             "crop": c.get("crop", 256), "n_patches": c.get("n_patches", 8000), "seed": c.get("seed", 1234)}
 
 
-def worker_banner(store):
-    """! @brief Message sur la présence d'un worker, avec la marche à suivre s'il n'y en a pas."""
+def worker_banner(store, kind="train"):
+    """! @brief Message sur la présence d'un worker, avec la marche à suivre s'il n'y en a pas.
+
+    @param store  JobStore.
+    @param kind   Type de job suivi par l'onglet (« train », « optim ») : il choisit les mots du message.
+    @return Texte Markdown. L'alerte sur les temps faussés porte sur tous les jobs en cours, quel que soit leur type.
+    """
+    noun = KIND_NOUNS.get(kind, "jobs")
     if store.worker_alive():
-        msg = "🟢 **Worker actif.** Les entraînements en file sont pris en charge."
+        msg = f"🟢 **Worker actif.** Les {noun} en file sont pris en charge."
     else:
-        msg = ("🔴 **Aucun worker actif : les entraînements restent en attente.** Double-cliquez sur "
+        msg = (f"🔴 **Aucun worker actif : les {noun} restent en attente.** Double-cliquez sur "
                "`scripts\\lancer_plateforme.bat`, ou lancez `docker compose up worker`.")
-    if any(j.status == "running" for j in visible_jobs(store)):
-        msg += ("\n\n⚠️ Un entraînement est en cours sur cette machine : les temps mesurés dans les onglets Tester "
+    running = {j.kind for j in store.list_jobs(limit=None, statuses=("running",))}
+    if running:
+        what = "Un entraînement" if running == {"train"} else ("Une optimisation Aidge" if running == {"optim"} else "Un job")
+        msg += (f"\n\n⚠️ {what} est en cours sur cette machine : les temps mesurés dans les onglets Tester "
                 "et Valider seront faussés tant qu'il tourne.")
     return msg
 
@@ -1086,6 +1115,7 @@ def build_tabs(store=None, tabs=None):
                        "cette page sans les interrompre. Elle se met à jour toute seule.",
                        "une fois un entraînement terminé, cliquez sur **Tester ce modèle**.")
         s_banner = gr.Markdown(worker_banner(store), elem_classes="status-banner")
+        ui_style.hint("Les optimisations Aidge se suivent dans l'onglet **5. Optimisation Aidge**.")
         s_table = gr.Dataframe(jobs_table(store), label="Entraînements", interactive=False, wrap=True)
         with gr.Row():
             with gr.Column(scale=1, min_width=320):
@@ -1208,31 +1238,15 @@ def build_tabs(store=None, tabs=None):
 
     # Adaptateur de cancel_job.
     def on_cancel(job_id, ok):
-        if job_id is None:
-            raise gr.Error("Sélectionnez d'abord un entraînement.")
-        try:
-            msg = cancel_job(store, job_id, ok)
-        except (ValueError, KeyError) as e:
-            raise gr.Error(str(e.args[0]) if isinstance(e, ValueError) else "Ce job n'existe plus.") from None
-        return msg, False
+        return job_action(cancel_job, store, job_id, ok), False
 
     # Adaptateur de requeue_job.
     def on_requeue(job_id):
-        if job_id is None:
-            raise gr.Error("Sélectionnez d'abord un entraînement.")
-        try:
-            return requeue_job(store, job_id)
-        except (ValueError, KeyError) as e:
-            raise gr.Error(str(e.args[0]) if isinstance(e, ValueError) else "Ce job n'existe plus.") from None
+        return job_action(requeue_job, store, job_id)
 
     # Adaptateur de duplicate_config.
     def on_dup(job_id):
-        if job_id is None:
-            raise gr.Error("Sélectionnez d'abord un entraînement.")
-        try:
-            vals = duplicate_config(store, job_id)
-        except (KeyError, ValueError) as e:
-            raise gr.Error(str(e.args[0]) if isinstance(e, ValueError) else "Ce job n'existe plus.") from None
+        vals = job_action(duplicate_config, store, job_id)
         names = ds_names_now()
         if vals["dataset"] not in names:
             gr.Warning(f"Le jeu d'images « {vals['dataset']} » n'existe plus : choisissez-en un autre.")

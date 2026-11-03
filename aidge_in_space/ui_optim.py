@@ -2,7 +2,8 @@
 
 L'interface ne quantifie jamais elle-même : « Lancer » dépose un job, et « Analyser » passe par un sous-processus court, car
 la capture du rapport d'Aidge agit sur tout le processus et un plantage C++ tuerait l'interface. Toute la logique est dans
-des fonctions pures ; les callbacks de build_tab() n'en sont que de minces adaptateurs. Contrat :
+des fonctions pures ; les callbacks de build_tab() n'en sont que de minces adaptateurs. Les jobs d'optimisation se suivent
+ici (section « Suivi des optimisations »), pas dans l'onglet Suivre, réservé aux entraînements. Contrat :
 docs/conception_optimisation.md (§ 9).
 """
 import json
@@ -10,6 +11,7 @@ import os
 import subprocess
 import sys
 import tempfile
+import time
 from pathlib import Path
 
 import gradio as gr
@@ -21,7 +23,8 @@ from .codecs.balle2017 import Balle2017Codec
 from .jobs import JobStore
 from .optim import results
 from .optim.config import DEFAULT_RECIPE, CLIPPINGS, RECIPES, OptimConfig, n_steps
-from .ui_training import REFRESH_S, choice_update, dataset_choices, worker_banner
+from .ui_training import (REFRESH_S, cancel_job, choice_update, dataset_choices, format_date, job_action, job_choices,
+                          job_progress, lmbda_text, log_tail, requeue_job, status_label, visible_jobs, worker_banner)
 
 ## Tailles de tuile proposées (côté).
 TILE_CHOICES = [32, 64, 128, 256]
@@ -36,6 +39,13 @@ BD_COLUMNS = ["série", "recette", "niveaux", "BD-rate (%)", "raison", "indicati
 ## Alerte quand la tentative INT8 n'a rien changé.
 NO_EFFECT_ALERT = ("**Aidge 0.10.1 ne sait pas quantifier la GDN : le graphe n'a pas changé.** La recette mixte garde la GDN "
                    "en flottant et quantifie les convolutions.")
+## Colonnes du tableau des optimisations lancées.
+JOBS_COLUMNS = ["n°", "nom", "auteur", "statut", "λ", "N", "tuile", "recettes", "progression (%)", "étape", "créé le",
+                "terminé le"]
+## Statuts d'un job qui n'est pas encore allé au bout de sa tentative.
+ACTIVE_STATUSES = ("queued", "running")
+## Message quand aucune optimisation n'est choisie.
+NO_JOB_SELECTED = "Sélectionnez d'abord une optimisation."
 
 
 def list_sources():
@@ -277,6 +287,100 @@ def download_choices(reports=None):
     return out
 
 
+def current_stage(store, job):
+    """! @brief Dernière étape consignée par une optimisation en cours (« mixte : export »), ou None.
+
+    @param store  JobStore.
+    @param job    Job d'optimisation.
+    @return Nom de l'étape, ou None si le job ne tourne pas ou n'a encore rien consigné.
+    """
+    if job.status != "running":
+        return None
+    stages = [m["stage"] for m in store.metrics(job.id, "eval") if m.get("stage")]
+    return stages[-1] if stages else None
+
+
+def _tile_text(cfg):
+    """! @brief Tuile d'une configuration d'optimisation, « 64 x 64 », ou « ? »."""
+    tile = cfg.get("tile") or []
+    return f"{tile[1]} x {tile[2]}" if len(tile) == 3 else "?"
+
+
+def _finished_text(job):
+    """! @brief Date de fin de la dernière tentative, « - » pour un job en attente ou en cours."""
+    return "-" if job.status in ACTIVE_STATUSES else format_date(job.finished_at)
+
+
+def optim_jobs_table(store):
+    """! @brief Tableau des optimisations lancées, de la plus récente à la plus ancienne. Les entraînements n'y sont pas.
+
+    @param store  JobStore.
+    @return DataFrame aux colonnes JOBS_COLUMNS.
+    """
+    rows = []
+    for job in visible_jobs(store, "optim"):
+        pct, _ = job_progress(job, [], time.time())
+        rows.append({"n°": job.id, "nom": job.name, "auteur": job.author, "statut": status_label(job),
+                     "λ": lmbda_text(job.lmbda), "N": job.N, "tuile": _tile_text(job.config),
+                     "recettes": ", ".join(job.config.get("recipes") or []), "progression (%)": pct,
+                     "étape": current_stage(store, job) or "-", "créé le": format_date(job.created_at),
+                     "terminé le": _finished_text(job)})
+    return pd.DataFrame(rows, columns=JOBS_COLUMNS)
+
+
+def optim_job_summary(job, report, stage=None):
+    """! @brief Synthèse Markdown d'une optimisation : statut, étape, réglages, dates, résultat par recette, erreur (fonction pure).
+
+    @param job     Job d'optimisation.
+    @param report  Son rapport (aidge_in_space.optim.results.report_for_job), ou None.
+    @param stage   Étape en cours (current_stage), ou None.
+    @return Texte Markdown.
+    """
+    c = job.config
+    source, ptq = c.get("source") or {}, c.get("ptq") or {}
+    lines = [f"**n°{job.id} · {job.name}** ({job.author or 'auteur inconnu'}) : **{status_label(job)}**, "
+             f"étape {job.last_step} sur {job.steps}."]
+    if stage:
+        lines.append(f"- Étape en cours : {stage}.")
+    lines += [f"- Checkpoint `{source.get('checkpoint', '?')}`, N={job.N}, λ={lmbda_text(job.lmbda)}, tuile {_tile_text(c)}, "
+              f"recettes {', '.join(c.get('recipes') or []) or '?'}, calibration `{ptq.get('calibration_set', '?')}`.",
+              f"- Créé le {format_date(job.created_at)}, terminé le {_finished_text(job)}.", "", "**Variantes**", ""]
+    if report is None and job.status not in ACTIVE_STATUSES and job.status != "done":
+        lines.append("Pas de rapport : l'optimisation n'est pas allée au bout. **Relancer** la recommence depuis le début.")
+    else:
+        lines.append(results.summary_markdown(report))
+    if job.error:
+        lines += ["", f"Message d'erreur :\n\n```\n{job.error}\n```"]
+    return "\n".join(lines)
+
+
+def optim_job_details(store, job_id, n_log_lines=50):
+    """! @brief Détail d'une optimisation : synthèse, fin du journal, variantes et fichiers à télécharger de ce job.
+
+    @param store        JobStore.
+    @param job_id       Identifiant, ou None.
+    @param n_log_lines  Nombre de lignes de train.log à renvoyer.
+    @return Quadruplet (Markdown de synthèse, texte du journal, DataFrame des variantes, choix de download_choices()) ;
+            une invitation et des zones vides si @p job_id est None.
+    @throws KeyError si le job est inconnu.
+    @throws ValueError si le job est un entraînement (il se suit dans l'onglet 2. Suivre).
+    """
+    if job_id is None:
+        return "Sélectionnez une optimisation.", "", variants_table([]), []
+    job = store.get(int(job_id))
+    if job.kind != "optim":
+        raise ValueError(f"Le job n°{job.id} est un entraînement : suivez-le dans l'onglet 2. Suivre.")
+    report = results.report_for_job(job.id)
+    reports = [report] if report else []
+    return (optim_job_summary(job, report, current_stage(store, job)), log_tail(store.job_dir(job.id) / "train.log", n_log_lines),
+            variants_table(reports), download_choices(reports))
+
+
+def done_optim_jobs(store):
+    """! @brief Identifiants des optimisations terminées : leur changement signale un nouveau rapport à relire."""
+    return {j.id for j in visible_jobs(store, "optim") if j.status == "done"}
+
+
 def build_tab(store=None):
     """! @brief Crée l'onglet, dans le @c with gr.Tabs() de app.build().
 
@@ -284,11 +388,13 @@ def build_tab(store=None):
     """
     store = store or JobStore()
     sources, datasets = source_choices(), dataset_choices()
+    jobs0 = job_choices(store, "optim")
     with gr.Tab("5. Optimisation Aidge", id="optimisation") as tab:
         ui_style.intro("**Préparez un modèle pour la carte.** Aidge quantifie l'encodeur, mesure sa mémoire face à la BRAM, "
                        "et produit le code C pour le processeur et le FPGA.",
-                       "la variante apparaît dans **3. Tester** et **4. Valider**, face à l'original.")
-        banner = gr.Markdown(worker_banner(store))
+                       "suivez le job plus bas, dans **Suivi des optimisations** ; une fois terminé, la variante apparaît "
+                       "dans **3. Tester** et **4. Valider**, face à l'original.")
+        banner = gr.Markdown(worker_banner(store, "optim"), elem_classes="status-banner")
         with gr.Row():
             with gr.Column(scale=2, min_width=340):
                 with ui_style.card("Modèle"):
@@ -326,9 +432,36 @@ def build_tab(store=None):
                     bd0, pts0 = bd_tables()
                     o_bd = gr.Dataframe(bd0, show_label=False)
                     o_points = gr.Dataframe(pts0, label="Écarts point par point")
-                with ui_style.card("Code C à télécharger"):
+                with ui_style.card("Code C à télécharger", "Tous les rapports, y compris ceux produits en ligne de commande."):
                     o_files = gr.Dropdown(download_choices(), value=None, label="Fichier")
                     o_file = gr.File(label="Téléchargement")
+
+        # ------------------------------------------------ suivi des jobs d'optimisation
+        with ui_style.card("Suivi des optimisations", "Les optimisations tournent en arrière-plan : vous pouvez fermer cette "
+                           "page sans les interrompre. Le tableau se met à jour tout seul."):
+            o_jobs = gr.Dataframe(optim_jobs_table(store), show_label=False, interactive=False, wrap=True)
+        with gr.Row():
+            with gr.Column(scale=2, min_width=340):
+                with ui_style.card("Optimisation choisie"):
+                    o_pick = gr.Dropdown(jobs0, value=jobs0[0][1] if jobs0 else None, label="Optimisation à examiner")
+                    o_summary = gr.Markdown("Sélectionnez une optimisation.")
+                    o_requeue = gr.Button("Relancer")
+                    ui_style.hint("**Relancer** recommence depuis le début une optimisation échouée, annulée ou interrompue.")
+                    o_msg = gr.Markdown()
+                    with gr.Accordion("Annuler cette optimisation", open=False):
+                        with gr.Row():
+                            o_confirm = gr.Checkbox(label="Je confirme l'annulation")
+                            o_cancel = gr.Button("Annuler", variant="stop")
+            with gr.Column(scale=5, min_width=340):
+                with ui_style.card("Résultat de cette optimisation", "Les variantes de ce job et son code C, une fois le "
+                                   "job terminé."):
+                    o_job_table = gr.Dataframe(variants_table([]), show_label=False, wrap=True)
+                    o_job_files = gr.Dropdown([], value=None, label="Fichier de ce job")
+                    o_job_file = gr.File(label="Téléchargement", show_label=False, interactive=False)
+                with gr.Accordion("Journal", open=False):
+                    o_log = gr.Textbox(label="Fin du journal (50 dernières lignes)", lines=12, max_lines=12, interactive=False)
+        o_choices = gr.State(None)
+        o_done = gr.State(None)
 
         def form_config(checkpoints, tile, recipes, clip, channel, ncal, calib, nimg, export, compile_export):
             """! @brief Configuration d'analyse : le premier checkpoint coché."""
@@ -354,23 +487,66 @@ def build_tab(store=None):
                                   compile_export, ind, reason)
             except (ValueError, KeyError) as e:
                 raise gr.Error(str(e))
-            return f"Job(s) déposé(s) : {', '.join(f'n°{i}' for i in ids)}. Suivez-les dans **2. Suivre**."
+            msg = f"Job(s) déposé(s) : {', '.join(f'n°{i}' for i in ids)}. Suivez-les plus bas, dans **Suivi des optimisations**."
+            gr.Info(msg)
+            return msg, optim_jobs_table(store), gr.update(choices=job_choices(store, "optim"), value=ids[0])
+
+        def report_updates(reports=None):
+            """! @brief Zones qui dépendent des rapports : alertes, variantes, BD-rate, fichiers de tous les rapports."""
+            reports = results.read_reports() if reports is None else reports
+            bd, points = bd_tables(reports)
+            return alerts_markdown(reports), variants_table(reports), bd, points, gr.update(choices=download_choices(reports))
 
         def refresh():
-            """! @brief Relit les rapports et le bandeau du worker."""
-            reports = results.read_reports()
-            bd, points = bd_tables(reports)
-            return (worker_banner(store), alerts_markdown(reports), variants_table(reports), bd, points,
-                    gr.update(choices=download_choices(reports)))
+            """! @brief Bouton Actualiser : bandeau du worker, optimisations lancées et rapports."""
+            return (worker_banner(store, "optim"), optim_jobs_table(store)) + report_updates()
+
+        def show(job_id, current_file):
+            """! @brief Détail de l'optimisation choisie ; le fichier choisi est gardé s'il appartient encore au job."""
+            try:
+                summary, log, table, files = optim_job_details(store, job_id)
+            except (KeyError, ValueError):
+                return "Ce job n'existe plus.", "", variants_table([]), gr.update(choices=[], value=None), None
+            pick = choice_update(files, current_file)
+            return summary, log, table, pick, pick["value"] if pick["value"] != current_file else gr.update()
+
+        def on_tick(job_id, current_file, last_choices, last_done):
+            """! @brief Rafraîchissement périodique : bandeau, tableau, menu des jobs, détail, et rapports quand un job finit."""
+            choices = job_choices(store, "optim")
+            pick = choice_update(choices, job_id) if choices != last_choices else gr.update()
+            done = done_optim_jobs(store)
+            reports = report_updates() if done != last_done else tuple(gr.update() for _ in range(5))
+            details = show(job_id, current_file) if job_id is not None else tuple(gr.update() for _ in range(5))
+            return (worker_banner(store, "optim"), optim_jobs_table(store), pick, choices, done) + reports + details
+
+        def on_tab(job_id):
+            """! @brief Ouverture de l'onglet : optimisations lancées depuis une autre session."""
+            return optim_jobs_table(store), choice_update(job_choices(store, "optim"), job_id)
+
+        def on_cancel(job_id, ok):
+            """! @brief Bouton Annuler : même sémantique que dans l'onglet Suivre (confirmation obligatoire)."""
+            return job_action(cancel_job, store, job_id, ok, missing=NO_JOB_SELECTED), False, optim_jobs_table(store)
+
+        def on_requeue(job_id):
+            """! @brief Bouton Relancer : remet en file un job échoué, annulé ou interrompu, qui recommence au début."""
+            return job_action(requeue_job, store, job_id, missing=NO_JOB_SELECTED), optim_jobs_table(store)
 
         analyze_inputs = [o_sources, o_tile, o_recipes, o_clip, o_channel, o_ncal, o_calib, o_nimg, o_export, o_compile]
         o_analyze.click(on_analyze, analyze_inputs, o_report, api_name="analyze_optim")
         o_go.click(on_go, [o_name, o_author, o_sources, o_recipes, o_tile, o_calib, o_clip, o_channel, o_ncal, o_nimg, o_export,
-                           o_compile, o_ind, o_ind_reason], o_status, api_name="launch_optim")
-        outputs = [banner, o_alerts, o_table, o_bd, o_points, o_files]
-        o_refresh.click(refresh, None, outputs)
+                           o_compile, o_ind, o_ind_reason], [o_status, o_jobs, o_pick], api_name="launch_optim")
+        report_outputs = [o_alerts, o_table, o_bd, o_points, o_files]
+        detail_outputs = [o_summary, o_log, o_job_table, o_job_files, o_job_file]
+        o_refresh.click(refresh, None, [banner, o_jobs] + report_outputs)
         menus = [o_sources, o_calib]
         o_refresh.click(menu_updates, menus, menus, show_progress="hidden")
         tab.select(menu_updates, menus, menus, show_progress="hidden")
+        tab.select(on_tab, o_pick, [o_jobs, o_pick], show_progress="hidden")
         o_files.input(lambda p: p, o_files, o_file)
-        gr.Timer(REFRESH_S * 6).tick(refresh, None, outputs)
+        o_pick.change(show, [o_pick, o_job_files], detail_outputs, show_progress="hidden")
+        o_job_files.input(lambda p: p, o_job_files, o_job_file)
+        o_cancel.click(on_cancel, [o_pick, o_confirm], [o_msg, o_confirm, o_jobs])
+        o_requeue.click(on_requeue, o_pick, [o_msg, o_jobs])
+        gr.Timer(REFRESH_S).tick(on_tick, [o_pick, o_job_files, o_choices, o_done],
+                                 [banner, o_jobs, o_pick, o_choices, o_done] + report_outputs + detail_outputs,
+                                 show_progress="hidden")

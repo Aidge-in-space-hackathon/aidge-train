@@ -153,17 +153,21 @@ def report_for_job(job_id, optim_dir=None):
 
     @param job_id     Numéro du job.
     @param optim_dir  Dossier des résultats ; None : config.OPTIM_DIR lu à l'appel.
-    @return Rapport, ou None s'il est absent ou illisible.
+    @return Rapport avec la clé @c _dir (dossier du rapport), comme read_reports(), ou None s'il est absent ou illisible.
     """
     path = Path(config.OPTIM_DIR if optim_dir is None else optim_dir) / str(job_id) / REPORT_NAME
     try:
-        return json.loads(path.read_text(encoding="utf-8"))
+        report = json.loads(path.read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
+    if not isinstance(report, dict):
+        return None
+    report["_dir"] = str(path.parent)
+    return report
 
 
 def summary_markdown(report):
-    """! @brief Résumé d'un rapport pour l'onglet Suivre (fonction pure).
+    """! @brief Résumé d'un rapport, pour le suivi d'un job dans l'onglet « 5. Optimisation Aidge » (fonction pure).
 
     @param report  Rapport, ou None.
     @return Texte Markdown.

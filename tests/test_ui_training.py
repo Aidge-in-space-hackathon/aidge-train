@@ -354,7 +354,7 @@ def test_jobs_table(store):
     store.log_metrics(a, 30, "train", {"eta_s": 600.0})
     b = store.submit(TrainConfig(name="second", lmbda=512).to_dict())
     df = ui.jobs_table(store)
-    assert list(df.columns) == ["n°", "type", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)",
+    assert list(df.columns) == ["n°", "nom", "auteur", "statut", "λ", "N", "mode", "progression (%)",
                                 "temps restant", "créé le"]
     assert list(df["n°"]) == [b, a]                                # du plus récent au plus ancien
     assert list(df["statut"]) == ["En attente", "En cours"]
@@ -404,6 +404,40 @@ def test_annuler_et_relancer(store):
         ui.requeue_job(store, jid)
     with pytest.raises(KeyError):
         ui.cancel_job(store, 999, True)
+
+
+def test_annuler_un_entrainement_en_cours_et_relancer_reprend(store):
+    jid = running_job(store)
+    assert "quelques secondes" in ui.cancel_job(store, jid, True)
+    store.finish(jid, "cancelled")
+    assert "dernier point de sauvegarde" in ui.requeue_job(store, jid)
+
+
+def test_suivre_ignore_les_optimisations(store):
+    jid = store.submit(TrainConfig(name="x").to_dict())
+    optim = store.submit({"name": "o", "author": "", "in_ch": 3, "N": 8, "lmbda": 1, "steps": 3}, kind="optim")
+    assert list(ui.jobs_table(store)["n°"]) == [jid]
+    assert [v for _, v in ui.job_choices(store)] == [jid]
+    assert [v for _, v in ui.job_choices(store, "optim")] == [optim]
+    assert [j.id for j in ui.visible_jobs(store, "train")] == [jid]
+    assert [j.id for j in ui.visible_jobs(store)] == [optim, jid]
+    assert [j.id for j in store.list_jobs(kind="optim")] == [optim]
+    with pytest.raises(ValueError):
+        store.list_jobs(kind="autre")
+
+
+def test_job_action_messages_simples(store):
+    import gradio as gr
+    jid = store.submit(TrainConfig(name="x").to_dict())
+    with pytest.raises(gr.Error, match="Sélectionnez"):
+        ui.job_action(ui.requeue_job, store, None)
+    with pytest.raises(gr.Error, match="une optimisation"):
+        ui.job_action(ui.requeue_job, store, None, missing="Choisissez une optimisation.")
+    with pytest.raises(gr.Error, match="confirmation"):
+        ui.job_action(ui.cancel_job, store, jid, False)
+    with pytest.raises(gr.Error, match="n'existe plus"):
+        ui.job_action(ui.cancel_job, store, 999, True)
+    assert "annulé" in ui.job_action(ui.cancel_job, store, jid, True)
 
 
 def test_duplicate_config(store, train_dir):

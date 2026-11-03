@@ -478,20 +478,111 @@ def test_analyse_lit_la_derniere_ligne_et_rapporte_les_erreurs(tmp_path):
     assert ui_optim.analyze(cfg, cmd=ok) == {"b": 2}
 
 
-def test_job_d_optimisation_dans_l_onglet_suivre(tmp_path, monkeypatch):
+_TRAIN_JOB = {"name": "entrainement", "author": "", "in_ch": 1, "N": 8, "lmbda": 1, "steps": 1}
+
+
+def test_suivre_n_affiche_pas_les_optimisations(tmp_path, monkeypatch):
+    from aidge_in_space import ui_training
+    monkeypatch.setattr(config, "OPTIM_DIR", tmp_path / "optim")
+    store = JobStore(tmp_path / "runs.sqlite")
+    train_id = store.submit(dict(_TRAIN_JOB))
+    job_id = store.submit(_job_config(), kind="optim")
+    assert list(ui_training.jobs_table(store)["n°"]) == [train_id]
+    assert "type" not in ui_training.jobs_table(store).columns
+    assert [v for _, v in ui_training.job_choices(store)] == [train_id]
+    assert [j.id for j in ui_training.visible_jobs(store)] == [job_id, train_id]     # sans filtre : tous les types
+    with pytest.raises(ValueError):
+        ui_training.duplicate_config(store, job_id)
+    store.claim_next("w")
+    store.claim_next("w")
+    store.finish(job_id, "done")
+    assert ui_training.new_done_jobs(store, set()) == ({job_id}, True)      # une optimisation finie recharge les codecs
+
+
+def test_l_onglet_5_liste_les_optimisations_seules(tmp_path, monkeypatch):
+    from aidge_in_space import ui_training
+    monkeypatch.setattr(config, "OPTIM_DIR", tmp_path / "optim")
+    store = JobStore(tmp_path / "runs.sqlite")
+    train_id = store.submit(dict(_TRAIN_JOB))
+    ids = _launch(store)
+    table = ui_optim.optim_jobs_table(store)
+    assert list(table.columns) == ui_optim.JOBS_COLUMNS
+    assert list(table["n°"]) == sorted(ids, reverse=True)
+    row = table.iloc[0]
+    assert row["statut"] == "En attente" and row["tuile"] == "64 x 64" and row["recettes"] == "fp32, mixte"
+    assert row["étape"] == "-" and row["terminé le"] == "-"
+    assert [v for _, v in ui_training.job_choices(store, "optim")] == sorted(ids, reverse=True)
+    assert ui_optim.optim_jobs_table(JobStore(tmp_path / "vide.sqlite")).empty
+    with pytest.raises(ValueError, match="Suivre"):
+        ui_optim.optim_job_details(store, train_id)
+    with pytest.raises(KeyError):
+        ui_optim.optim_job_details(store, 999)
+    summary, log, variants, files = ui_optim.optim_job_details(store, None)
+    assert summary == "Sélectionnez une optimisation." and log == "" and variants.empty and files == []
+
+
+def test_suivi_d_une_optimisation_de_bout_en_bout(tmp_path, monkeypatch):
     from aidge_in_space import ui_training
     monkeypatch.setattr(config, "OPTIM_DIR", tmp_path / "optim")
     store = JobStore(tmp_path / "runs.sqlite")
     job_id = store.submit(_job_config(), kind="optim")
-    table = ui_training.jobs_table(store)
-    assert table.iloc[0]["type"] == "Aidge"
-    assert "Aidge" in ui_training.job_choices(store)[0][0]
-    figure, _, summary = ui_training.job_details(store, job_id)
-    assert figure is None and "Optimisation Aidge" in summary and "Rapport pas encore disponible" in summary
+    summary, log, variants, files = ui_optim.optim_job_details(store, job_id)
+    assert "En attente" in summary and "Rapport pas encore disponible" in summary
+    assert log == "(journal vide)" and variants.empty and files == []
+
+    store.claim_next("w")
+    store.log_metrics(job_id, 3, "eval", {"kind": "eval", "stage": "mixte : export"})
+    store.job_dir(job_id).mkdir(parents=True)
+    (store.job_dir(job_id) / "train.log").write_text("Étape 3 : mixte : export\n", encoding="utf-8")
+    assert ui_optim.optim_jobs_table(store).iloc[0]["étape"] == "mixte : export"
+    summary, log, _, _ = ui_optim.optim_job_details(store, job_id)
+    assert "Étape en cours : mixte : export" in summary and "étape 3 sur" in summary and "mixte : export" in log
+
+    assert "fin de l'étape en cours" in ui_training.cancel_job(store, job_id, True)     # même sémantique que Suivre
+    assert ui_optim.optim_jobs_table(store).iloc[0]["statut"] == "Annulation demandée"
+    store.finish(job_id, "cancelled")
+    summary = ui_optim.optim_job_details(store, job_id)[0]
+    assert "Pas de rapport" in summary and ui_optim.optim_jobs_table(store).iloc[0]["terminé le"] != "-"
+    assert "depuis le début" in ui_training.requeue_job(store, job_id)
+    assert store.get(job_id).status == "queued"
     with pytest.raises(ValueError):
-        ui_training.duplicate_config(store, job_id)
-    _write_report(tmp_path / "optim", fake_report(str(job_id), variants={"int8": {"status": "sans_effet", "reason": "Sqrt"}}))
-    assert "SANS EFFET" in ui_training.job_details(store, job_id)[2]
+        ui_training.requeue_job(store, job_id)
+
+    store.claim_next("w")
+    store.finish(job_id, "done")
+    variants_ = {"fp32": {"status": "ok", "export": {"status": "verifie", "zip": "fp32/export.zip"}},
+                 "int8": {"status": "sans_effet", "reason": "Sqrt"}}
+    folder = _write_report(tmp_path / "optim", fake_report(str(job_id), variants=variants_))
+    (folder / "fp32").mkdir()
+    (folder / "fp32" / "export.zip").write_bytes(b"zip")
+    summary, _, variants, files = ui_optim.optim_job_details(store, job_id)
+    assert "SANS EFFET" in summary and "Sqrt" in summary
+    assert list(variants["recette"]) == ["fp32", "int8"]
+    assert files == [(f"n°{job_id} · serie · fp32 : export C++ (zip)", str(folder / "fp32" / "export.zip"))]
+    assert ui_optim.done_optim_jobs(store) == {job_id}
+    assert results.report_for_job(job_id)["_dir"] == str(folder)
+
+
+def test_synthese_d_une_optimisation_en_echec():
+    from aidge_in_space.jobs import Job
+    job = Job(id=7, status="failed", name="lune", author="", config=dict(_job_config(), ptq={"calibration_set": "jeu"}), in_ch=3,
+              N=SMALL_N, lmbda=1024.0, steps=12, last_step=2, cancel_requested=False, attempts=1, worker="w", ckpt_path=None,
+              error="Traceback : la raison", created_at=0.0, queued_at=0.0, started_at=1.0, finished_at=2.0, heartbeat_at=None,
+              kind="optim")
+    text = ui_optim.optim_job_summary(job, None)
+    assert "**n°7 · lune**" in text and "En échec" in text and "étape 2 sur 12" in text
+    assert "Pas de rapport" in text and "la raison" in text and "tuile 64 x 64" in text and "calibration `jeu`" in text
+    assert "SANS EFFET" in ui_optim.optim_job_summary(job, fake_report("7", variants={"int8": {"status": "sans_effet"}}))
+
+
+def test_bandeau_du_worker_selon_l_onglet(tmp_path):
+    from aidge_in_space import ui_training
+    store = JobStore(tmp_path / "runs.sqlite")
+    assert "les optimisations Aidge restent en attente" in ui_training.worker_banner(store, "optim")
+    assert "les entraînements restent en attente" in ui_training.worker_banner(store)
+    store.submit(_job_config(), kind="optim")
+    store.claim_next("w")
+    assert "Une optimisation Aidge est en cours" in ui_training.worker_banner(store)      # les temps sont faussés aussi
 
 
 def test_interface_construite_avec_l_onglet():
