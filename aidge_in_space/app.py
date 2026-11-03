@@ -778,7 +778,7 @@ def main(argv=None):
     download_kodak()
     discover()
     build().queue().launch(server_name=host, server_port=args.port, inbrowser=args.inbrowser,
-                           auth=users or None, max_file_size=f"{upload_mb}mb", theme=ui_style.THEME,
+                           max_file_size=f"{upload_mb}mb", theme=ui_style.THEME,
                            css=ui_style.CSS, allowed_paths=[str(config.CKPT_DIR)])
 
 
