@@ -1,0 +1,13 @@
+# Ruff : limité pour l'instant au code de l'assistant RAG (vérifié en CI par .github/workflows/rag.yml).
+# Le reste du dépôt n'a jamais été passé à ruff : l'élargir dans une PR dédiée.
+line-length = 120
+target-version = "py311"
+include = ["rag/**/*.py", "litellm/**/*.py", "tests/rag/**/*.py", "aidge_in_space/ui_assistant.py"]
+
+[lint]
+select = ["E", "F", "W", "B", "I", "UP"]
+# B008 : appels par défaut dans les signatures Gradio ; E741 : noms courts acceptés dans les tests
+ignore = ["B008"]
+
+[lint.isort]
+known-first-party = ["rag", "aidge_in_space"]

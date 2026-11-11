@@ -1,0 +1,100 @@
+# Sources de l'assistant RAG : source unique de vérité pour l'ingestion (python -m rag.ingest).
+#
+# Chaque source a :
+#   id          identifiant court, préfixe des noms affichés dans les citations
+#   visibility  public : ingérée partout, y compris en CI et dans l'artefact d'index publié ;
+#               private : ingérée en local seulement, jamais en CI ni dans l'artefact (python -m rag.ingest --public-only)
+#   kind        url (un fichier téléchargé), git (fichiers d'un dépôt à un commit), repo (fichiers de ce dépôt),
+#               local (dossier non versionné)
+# Les téléchargements sont épinglés (version arXiv, version HAL, tag ou commit) et vérifiés par SHA-256 :
+# un fichier qui a changé à la source est refusé, il faut alors mettre à jour cette entrée.
+# Fichiers téléchargés : rag/sources/cache/ ; fichiers privés : rag/sources/private/ (non versionnés).
+# Vérifié le 2026-11-11.
+
+sources:
+  - id: balle2017
+    title: "Ballé, Laparra, Simoncelli : End-to-end Optimized Image Compression (ICLR 2017)"
+    visibility: public
+    kind: url
+    url: https://arxiv.org/pdf/1611.01704v3
+    version: arXiv 1611.01704v3
+    file: balle2017_end2end_1611.01704v3.pdf
+    sha256: fef402bbcd084e97c4c184a03c8893f6c027f5cadd23f30cf6c2265381bcf6ba
+    license: licence arXiv (non exclusive)
+
+  - id: erts2026
+    title: "Moineau et al. : Aidge, a comprehensive and traceable library (ERTS 2026)"
+    visibility: public
+    kind: url
+    url: https://hal.science/hal-05513843v1/document
+    version: HAL hal-05513843v1
+    file: erts2026_aidge_hal-05513843v1.pdf
+    sha256: c55011e38205b68bbfd245cd2275ca9764fafeafa152c21370217184646ad617
+    license: CC BY 4.0
+
+  # Documentation Aidge à la version des paquets pip utilisés (aidge-* 0.10.1, voir requirements.txt)
+  - id: aidge
+    title: "Documentation Eclipse Aidge 0.10.1"
+    visibility: public
+    kind: git
+    repo: https://gitlab.eclipse.org/eclipse/aidge/aidge
+    version: v0.10.1
+    commit: bfefd23b505cec81c39e1201947d07f94fdc88e3
+    raw: "https://gitlab.eclipse.org/eclipse/aidge/aidge/-/raw/{commit}/{path}"
+    license: EPL-2.0
+    files:
+      - {path: README.md, sha256: 2bfcb97c0367005b953279e14e9f021a59c8036603477dbbd0d35169244588ea}
+      - {path: docs/source/GetStarted/whyAidge.rst, sha256: 5bc919432d9a118e26558924e937081eca7e3b649cb85cbd3e6f45cc65377cef}
+      - {path: docs/source/GetStarted/install.rst, sha256: 2bd41f6b164251858ea30eb37475f9f051cb460f76efb175e7df47088ec0655d}
+      - {path: docs/source/UserGuide/aidge_IR.rst, sha256: 455b4320375c0ab1dee7490a33b35868a8bed281e56e2ae5ff88673e69e079a6}
+      - {path: docs/source/UserGuide/aidge_architecture.rst, sha256: 62d4c720fd48208e803fbaa42b81aa0380685ce7bc5eecc8b7e90f0851216c53}
+      - {path: docs/source/UserGuide/aidge_core.rst, sha256: 4458251c54bd0628e22b2ffe94416b5d97fe50d99ffbf6181fb995a66fb36a65}
+      - {path: docs/source/UserGuide/aidge_deploy_structure.rst, sha256: 0a21946452562bc2cd581bc94953ff94bcd14f3e3abc29eb97f38d1b577f3713}
+      - {path: docs/source/UserGuide/aidge_export.rst, sha256: 33cf82b106bdcad8d04126b9c494d2e567c49a400f5c11f11a7b3d3baef2d1cd}
+      - {path: docs/source/UserGuide/aidge_export_structure.rst, sha256: b207fef7ed08ea2a53c73377ad6c60e4e2ae9f16eae80ca2f4b86b2d3f8f82f8}
+      - {path: docs/source/UserGuide/aidge_model_vis.rst, sha256: 2bafe470e2d1e0862870703048db7f755db4e81971e0f65a13a304131e47db5f}
+      - {path: docs/source/UserGuide/aidge_runtime_vs_export.rst, sha256: 5d40e10d9c47a10bb95c0386ca7b6165ed68cec03a6c70f19fc5ae818a011905}
+      - {path: docs/source/API/Core/graph.rst, sha256: ae057437e48840774114848960832e0c16d2004884bfaec8d7922446102f2b8d}
+      - {path: docs/source/API/Core/scheduler.rst, sha256: 73602bcb8ef418fa3324c01ca1c5732294cc2139e51efb5c1f6d0bff186340ff}
+      - {path: docs/source/API/Core/recipes.rst, sha256: 6bc3d30721b49b7b0ba158416f79bd8c243e86df6ebc7cca5a6fa416aac9c1d2}
+      - {path: docs/source/API/Core/data.rst, sha256: 4b00e327582c7ef6989bbba67667bfac08e08d5ac8e9e12eb75c4bb9ac567a36}
+      - {path: docs/source/API/Onnx/index.rst, sha256: d8a7bf29d0ce34863173dcaf0af8278c0cd9d4d72cc471389645de6dfa82bae4}
+      - {path: docs/source/API/Quantization/index.rst, sha256: 3a7435228e87b765297e9e6cd0c768141a58b2ab63e8f331b9e24ca452eca11c}
+
+  - id: locod
+    title: "LoCod (Viveris) : README et documentation"
+    visibility: public
+    kind: git
+    repo: https://github.com/viveris/LoCod
+    version: master au 2026-11-09
+    commit: 88150accd97324ca46438c85655644a6762e3deb
+    raw: "https://raw.githubusercontent.com/viveris/LoCod/{commit}/{path}"
+    license: GPL-3.0
+    files:
+      - {path: README.md, sha256: 896647f7861d5842a8cc475195b9230ad5b017db953fdbc33c1bf1a9667350d5}
+      - {path: CNES-use-case/README.md, sha256: 68d12e6211998b9f9802d399f15eed9446e4d5ea0c93ffca9b403c629f93611f}
+      - {path: doc/locod_api.md, sha256: c389c64fe5e906667c7516a3da62397174e349eccaf3ac2e99901bcc676b5814}
+      - {path: doc/locod_bram.md, sha256: 5a8ba61dac12ce438fcc2439a1df71d2ee753274eb7368c678af6628ffa13e17}
+      - {path: doc/locod_operation.md, sha256: 3705d1a2bdd305d539bbd07337219552bfe78802738fc06d992884c88ecac6ab}
+      - {path: doc/add_new_target.md, sha256: c16428711d60ed35a43272522c33ebdfb5c5bad93e5b401f24368f3dc08a1c22}
+      - {path: doc/gpio_support.md, sha256: e32ffb346401723a0ecc6853a9794ca983ef8e4fd9405ae69a07cf9af007b33b}
+      - {path: doc/pynq_z2_start_guide.md, sha256: 3588e1392c8cb3431c39ab8b229ebb036937af73f099fd7717ad79164d911273}
+
+  # Documentation de ce dépôt : versionnée ici, le hash est calculé à l'ingestion
+  - id: projet
+    title: "Documentation du dépôt aidge-train"
+    visibility: public
+    kind: repo
+    files:
+      - README.md
+      - docs/*.md
+      - locod/spike/README.md
+
+  # Plaquette et présentation du challenge : copiées à la main dans rag/sources/private/, jamais versionnées
+  - id: challenge
+    title: "Documents du Challenge Aidge (privés)"
+    visibility: private
+    kind: local
+    dir: private
+    files:
+      - "*.pdf"

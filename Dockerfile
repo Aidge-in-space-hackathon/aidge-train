@@ -23,6 +23,8 @@ RUN apt-get update \
  && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt /tmp/requirements.txt
+# Incluse par requirements.txt (-r rag/requirements.txt, chemin relatif à celui-ci)
+COPY rag/requirements.txt /tmp/rag/requirements.txt
 RUN pip install torch --index-url "${TORCH_INDEX}" \
  && pip install -r /tmp/requirements.txt
 

@@ -33,6 +33,9 @@ aidge-quantization==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform 
 gradio>=6.31.0
 pytest>=9.2.0
 
+# Assistant RAG (bulle de chat) : liste dans rag/requirements.txt (le Dockerfile la copie à côté de celle-ci)
+-r rag/requirements.txt
+
 # Notebooks
 jupyterlab>=4.6.5
 ipykernel>=7.4.0
