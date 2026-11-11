@@ -40,7 +40,7 @@ services:
       litellm:
         condition: service_started
 
-  # Proxy LiteLLM de l'assistant RAG : modèle « assistant », bascule NVIDIA NIM -> Mistral -> Groq
+  # Proxy LiteLLM de l'assistant RAG : modèle « assistant », bascule NVIDIA NIM -> Groq
   # (litellm/config.yaml). Aucun port publié : seule l'app l'appelle, sur http://litellm:4000.
   # Clés : fichier .env (voir .env.example). Image Docker Hub officielle, version figée.
   litellm:
@@ -51,7 +51,6 @@ services:
     environment:
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
       NVIDIA_NIM_API_KEY: ${NVIDIA_NIM_API_KEY:-}
-      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
       GROQ_API_KEY: ${GROQ_API_KEY:-}
       # Table des modèles embarquée : pas de téléchargement au démarrage
       LITELLM_LOCAL_MODEL_COST_MAP: "True"

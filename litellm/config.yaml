@@ -1,6 +1,6 @@
 # Proxy LiteLLM de l'assistant RAG (service « litellm » de docker-compose.yml, image litellm/litellm figée).
 # L'application appelle le modèle « assistant » sur http://litellm:4000 avec le client OpenAI.
-# Ordre de bascule : NVIDIA NIM (principal) -> Mistral (secours 1) -> Groq (secours 2).
+# Ordre de bascule : NVIDIA NIM (principal) -> Groq (secours).
 # Offres gratuites uniquement : clés lues dans .env (voir .env.example), jamais écrites ici.
 # Identifiants vérifiés le 2026-11-11 dans la table des modèles de LiteLLM 1.106.8 (appel d'outils pris en charge)
 # et chez chaque fournisseur. Vérification hors ligne : python -m pytest litellm/test_fallback.py
@@ -11,21 +11,16 @@ model_list:
     litellm_params:
       model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
       api_key: os.environ/NVIDIA_NIM_API_KEY
-  # Secours 1 : Mistral Small 4 (version 26.03), plan gratuit de Mistral
-  - model_name: assistant-mistral
-    litellm_params:
-      model: mistral/mistral-small-2603
-      api_key: os.environ/MISTRAL_API_KEY
-  # Secours 2 : gpt-oss-120b, modèle de production Groq, offre gratuite
+  # Secours : gpt-oss-120b, modèle de production Groq, offre gratuite
   - model_name: assistant-groq
     litellm_params:
       model: groq/openai/gpt-oss-120b
       api_key: os.environ/GROQ_API_KEY
 
 router_settings:
-  # Toute erreur restante après les nouvelles tentatives (429, 5xx, délai dépassé) bascule vers le groupe suivant
+  # Toute erreur restante après les nouvelles tentatives (429, 5xx, délai dépassé) bascule vers le secours
   fallbacks:
-    - assistant: [assistant-mistral, assistant-groq]
+    - assistant: [assistant-groq]
   # Délai par appel, en secondes : au-delà, l'appel compte comme un échec et bascule
   timeout: 45
   num_retries: 1

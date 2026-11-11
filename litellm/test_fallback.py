@@ -5,8 +5,8 @@ Deux modes :
   pointe vers un faux serveur local (panne 503, quota 429, délai dépassé, ou réponse correcte). Aucun appel réseau,
   aucune clé : python -m pytest litellm/test_fallback.py
 - réel : python litellm/test_fallback.py --live interroge le proxy lancé (docker compose up litellm) avec
-  mock_testing_fallbacks, qui simule une panne du principal, et vérifie que la réponse vient de Mistral ou de Groq.
-  Demande LITELLM_MASTER_KEY et des clés valides pour les secours ; consomme une requête gratuite.
+  mock_testing_fallbacks, qui simule une panne du principal, et vérifie que la réponse vient de Groq.
+  Demande LITELLM_MASTER_KEY et une clé Groq valide ; consomme une requête gratuite.
 
 Ne pas ajouter de __init__.py dans litellm/ : ce dossier masquerait alors le paquet litellm.
 """
@@ -22,7 +22,7 @@ from pathlib import Path
 ## Configuration du proxy, source unique des modèles et des règles de bascule.
 CONFIG = Path(__file__).with_name("config.yaml")
 ## Groupes de modèles, dans l'ordre de bascule attendu.
-ORDER = ["assistant", "assistant-mistral", "assistant-groq"]
+ORDER = ["assistant", "assistant-groq"]
 
 # La table des prix de LiteLLM est téléchargée à l'import sinon : les tests restent hors ligne
 os.environ.setdefault("LITELLM_LOCAL_MODEL_COST_MAP", "True")
@@ -146,10 +146,10 @@ def test_config_declares_fallback_chain():
     groups = [m["model_name"] for m in cfg["model_list"]]
     assert groups == ORDER
     providers = [m["litellm_params"]["model"].split("/")[0] for m in cfg["model_list"]]
-    assert providers == ["nvidia_nim", "mistral", "groq"]
+    assert providers == ["nvidia_nim", "groq"]
     assert cfg["model_list"][0]["litellm_params"]["model"] == "nvidia_nim/nvidia/nemotron-3-super-120b-a12b"
     router = cfg["router_settings"]
-    assert router["fallbacks"] == [{"assistant": ["assistant-mistral", "assistant-groq"]}]
+    assert router["fallbacks"] == [{"assistant": ["assistant-groq"]}]
     assert router["num_retries"] >= 1 and router["timeout"] > 0 and router["cooldown_time"] > 0
     assert router["retry_policy"]["RateLimitErrorRetries"] == 0
     # Aucune clé en clair : tout vient de l'environnement
@@ -158,16 +158,14 @@ def test_config_declares_fallback_chain():
     assert cfg["general_settings"]["master_key"] == "os.environ/LITELLM_MASTER_KEY"
 
 
-def _servers(primary, mistral="ok", groq="ok"):
-    """! @brief Démarre les trois faux fournisseurs.
+def _servers(primary, groq="ok"):
+    """! @brief Démarre les deux faux fournisseurs.
 
     @param primary  Comportement du principal (NVIDIA NIM).
-    @param mistral  Comportement du secours 1.
-    @param groq     Comportement du secours 2.
+    @param groq     Comportement du secours (Groq).
     @return dict groupe -> FakeProvider.
     """
     return {"assistant": FakeProvider(primary, "nvidia"),
-            "assistant-mistral": FakeProvider(mistral, "mistral"),
             "assistant-groq": FakeProvider(groq, "groq")}
 
 
@@ -189,9 +187,8 @@ def test_fallback_on_provider_failure():
         try:
             router = build_router({k: s.url for k, s in servers.items()}, timeout=1)
             answer = _ask(router)
-            assert answer == "réponse de mistral", f"panne {failure} : {answer}"
+            assert answer == "réponse de groq", f"panne {failure} : {answer}"
             assert servers["assistant"].hits >= 1, f"panne {failure} : le principal n'a pas été essayé"
-            assert servers["assistant-groq"].hits == 0
         except AssertionError:
             raise
         except Exception as e:                       # erreur inattendue : message lisible
@@ -201,13 +198,15 @@ def test_fallback_on_provider_failure():
                 s.close()
 
 
-def test_second_fallback_when_first_also_fails():
+def test_error_when_every_provider_fails():
+    import pytest
     _litellm()
-    servers = _servers("503", mistral="429")
+    servers = _servers("503", groq="429")
     try:
         router = build_router({k: s.url for k, s in servers.items()}, timeout=2)
-        assert _ask(router) == "réponse de groq"
-        assert servers["assistant"].hits >= 1 and servers["assistant-mistral"].hits >= 1
+        with pytest.raises(Exception):  # noqa: B017 (l'erreur exacte dépend de LiteLLM)
+            _ask(router)
+        assert servers["assistant"].hits >= 1 and servers["assistant-groq"].hits >= 1
     finally:
         for s in servers.values():
             s.close()
@@ -218,9 +217,9 @@ def test_rate_limited_primary_is_cooled_down():
     servers = _servers("429")
     try:
         router = build_router({k: s.url for k, s in servers.items()}, timeout=2)
-        assert _ask(router) == "réponse de mistral"
+        assert _ask(router) == "réponse de groq"
         hits = servers["assistant"].hits
-        assert _ask(router) == "réponse de mistral"
+        assert _ask(router) == "réponse de groq"
         assert servers["assistant"].hits == hits, "le principal en cooldown ne doit pas être rappelé"
     finally:
         for s in servers.values():
@@ -247,7 +246,7 @@ def live(base_url):
     resp = raw.parse()
     group = raw.headers.get("x-litellm-model-group", "?")
     print(f"modèle : {resp.model} ; groupe : {group} ; réponse : {resp.choices[0].message.content!r}")
-    if group in ("assistant-mistral", "assistant-groq") or "mistral" in resp.model or "gpt-oss" in resp.model:
+    if group == "assistant-groq" or "gpt-oss" in resp.model:
         print("OK : la réponse vient d'un secours")
         return 0
     print("ÉCHEC : la réponse ne vient pas d'un secours", file=sys.stderr)
