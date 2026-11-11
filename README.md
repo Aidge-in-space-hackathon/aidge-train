@@ -23,6 +23,7 @@ Le notebook de référence, le portage Aidge et LoCod et le travail sur la carte
 - [Plateforme d'entraînement](#plateforme-dentraînement)
 - [Architecture](#architecture)
 - [Configuration](#configuration)
+- [Assistant RAG](#assistant-rag)
 - [Contribuer](#contribuer)
 - [Déploiement](#déploiement)
 - [État du projet](#état-du-projet)
@@ -179,6 +180,93 @@ flowchart LR
 
 Sous Docker, ces valeurs se placent dans l'environnement ou dans un fichier `.env`, jamais versionné.
 
+## Assistant RAG
+
+Une bulle 💬, en bas à droite de tous les onglets, ouvre un assistant qui répond aux questions de l'équipe sur le papier de Ballé, l'article ERTS sur Aidge, la documentation d'Aidge 0.10.1 et de LoCod, et les docs de ce dépôt. Il répond en français et cite le fichier et la page de chaque passage utilisé. Si rien de pertinent n'est trouvé, il répond « je ne sais pas ». Il n'utilise que des offres gratuites.
+
+### Architecture
+
+```mermaid
+flowchart LR
+    U([Bulle 💬<br/>ui_assistant.py]) --> AG["Agent<br/>rag/agent.py"]
+    AG -- "client OpenAI" --> L["Proxy LiteLLM<br/>http://litellm:4000"]
+    L --> N["NVIDIA NIM<br/>Nemotron 3 Super"]
+    L -. "429, 5xx, délai" .-> G["Groq<br/>gpt-oss-120b"]
+    AG -- "outil search_docs" --> R["Recherche<br/>rag/retrieval.py"]
+    R --> B["BM25"]
+    R --> C[("Chroma<br/>rag/index/")]
+    R --> V["Voyage AI<br/>voyage-4, rerank-2.5-lite"]
+    S["rag/sources.yaml"] --> I["Ingestion<br/>rag/ingest.py"] --> C
+```
+
+- **Sources** : [`rag/sources.yaml`](rag/sources.yaml) est la seule liste de référence. Chaque téléchargement est épinglé (version arXiv, version HAL, tag ou commit Git) et vérifié par SHA-256 : un fichier modifié à la source est refusé. La plaquette et la présentation du challenge, privées, se copient à la main dans `rag/sources/private/`. Elles ne sont ingérées qu'en local, jamais en CI ni dans l'artefact d'index.
+- **Découpage** : les documents sont découpés par section (titres Markdown et reStructuredText, table des matières des PDF), en passages d'environ 800 tokens avec 100 de chevauchement. Chaque passage garde son fichier, sa page et sa section.
+- **Recherche** :
+  - BM25 et vecteurs Chroma, fusionnés par RRF ;
+  - rerank Voyage des 8 meilleurs candidats ;
+  - 5 passages rendus au LLM.
+- **Agent** : il appelle les outils au plus 4 fois. Le registre d'outils ([`rag/tools.py`](rag/tools.py)) ne contient que `search_docs` pour l'instant.
+
+### Mise en route
+
+1. Copier [`.env.example`](.env.example) en `.env`, puis renseigner `LITELLM_MASTER_KEY` (une clé de votre choix commençant par `sk-`), `NVIDIA_NIM_API_KEY`, `GROQ_API_KEY` et, si possible, `VOYAGE_API_KEY`.
+2. Lancer `docker compose up --build`. Le service `litellm` démarre avec l'app et n'est publié sur aucun port de l'hôte : seule l'app l'appelle.
+3. Au premier démarrage, l'app construit l'index en arrière-plan (journal : `rag/index/ingest.log`) :
+   - d'abord en local avec fastembed, sans clé, en 2 minutes environ ;
+   - puis avec Voyage, plus long : les 435 passages, environ 134K tokens, se calculent en un quart d'heure environ au rythme de l'offre gratuite.
+
+   Seuls les passages qui changent sont recalculés ensuite.
+
+| Variable | Défaut | Rôle |
+| :- | :- | :- |
+| `LITELLM_MASTER_KEY` | aucune | clé du proxy LiteLLM, partagée par le proxy et l'app ; sans elle, la bulle est désactivée |
+| `NVIDIA_NIM_API_KEY` | aucune | fournisseur principal ([build.nvidia.com](https://build.nvidia.com)) |
+| `GROQ_API_KEY` | aucune | fournisseur de secours ([console.groq.com](https://console.groq.com)) |
+| `VOYAGE_API_KEY` | aucune | embeddings et rerank ([dash.voyageai.com](https://dash.voyageai.com)) ; sans elle, repli local |
+| `EMBEDDINGS_BACKEND` | `auto` | `auto` (Voyage si la clé est là, plus le repli local), `voyage` ou `local` |
+| `AIDGE_ASSISTANT_TRUSTED_AUTH` | non défini | `1` : autorise la bulle sur une interface exposée au réseau, à condition qu'une authentification la protège |
+| `AIDGE_ASSISTANT_AUTO_INGEST` | `1` | `0` : pas de construction automatique de l'index au démarrage |
+
+### Commandes
+
+```bash
+python -m rag.ingest                    # (re)construit l'index ; --if-stale : seulement si les sources ont changé
+python -m rag.ingest --backend local    # sans clé Voyage
+python -m rag.ask "Comment fonctionne la GDN ?"
+python -m rag.ask --search-only "GDN"   # passages trouvés, sans LLM
+python -m rag.eval.run [--llm]          # questions de référence (rag/eval/questions.yaml), hors CI
+python -m pytest tests/rag              # tests unitaires, sans réseau
+python -m pytest litellm/test_fallback.py   # bascule LiteLLM hors ligne (pip install litellm==1.106.8)
+docker compose exec app python litellm/test_fallback.py --live --url http://litellm:4000   # bascule réelle
+```
+
+### Bascule entre fournisseurs
+
+Le modèle `assistant` du proxy ([`litellm/config.yaml`](litellm/config.yaml)) appelle NVIDIA NIM. Il bascule sur Groq dans trois cas :
+- un 429 (quota épuisé), sans nouvelle tentative ;
+- une erreur 5xx, après une nouvelle tentative ;
+- un délai de 45 s dépassé.
+
+Un fournisseur en échec est mis à l'écart 60 s : les questions suivantes vont directement au secours. Si les deux fournisseurs échouent, la bulle affiche un message clair. Les embeddings ont aussi leurs replis :
+- quota Voyage atteint : vecteurs locaux ;
+- rerank impossible : ordre RRF.
+
+### Limites des offres gratuites
+
+- **Voyage, sans moyen de paiement** : 3 requêtes et 10K tokens par minute. Une question consomme 2 requêtes (embedding et rerank). Au-delà de 3 s d'attente, la question passe en local, avec une recherche de moindre qualité. Le rerank est limité à 8 candidats pour tenir dans ce budget. Les 200 M de tokens offerts ne s'épuisent pas à cette échelle.
+- **NVIDIA NIM** : endpoint gratuit « Prototype », régi par les conditions d'essai NVIDIA, prévu pour le prototypage et non pour la production. Le débit et la durée de l'offre peuvent changer sans préavis.
+- **Groq** : quotas par minute et par jour limités (environ 8K tokens par minute pour gpt-oss-120b, à vérifier dans la console). Une réponse avec 5 passages en consomme 4 à 6K : le secours encaisse quelques questions par minute, pas plus.
+- **Exposition** : ces quotas sont partagés par toute l'équipe. La bulle est donc désactivée dès que l'interface est joignable depuis le réseau sans authentification devant. LiteLLM n'est jamais publié. Le déploiement en production fera l'objet d'une PR séparée.
+- **Licence** : PyMuPDF, qui lit les PDF, est sous licence AGPL-3.0, ce qui reste compatible tant que le dépôt et l'image restent publics.
+
+### Index et CI
+
+L'index (`rag/index/`) n'est pas versionné. Le workflow [`rag.yml`](.github/workflows/rag.yml) comporte deux jobs :
+- **Lint et tests**, à chaque modification de l'assistant : ruff, tests de l'assistant et bascule LiteLLM hors ligne, sans réseau ni secret.
+- **Reconstruction de l'index**, quand les sources changent : ingestion avec Voyage des seules sources publiques, publiée en artefact pendant 30 jours. L'artefact contient l'index et un manifeste : empreinte des sources, modèle d'embedding, date. Ce job demande le secret de dépôt `VOYAGE_API_KEY`.
+
+En local, l'app reconstruit l'index elle-même si l'index est absent ou si l'empreinte des sources a changé (`--if-stale`). Télécharger l'artefact demanderait un jeton GitHub, même sur un dépôt public : cette option reste à ajouter si la reconstruction locale devient trop lente.
+
 ## Contribuer
 
 `main` n'évolue que par pull request, avec une CI au vert : tests, fichiers compose, construction de l'image et démarrage de l'application et du worker. Dependabot propose chaque semaine les mises à jour de dépendances, soumises à la même CI : les mineures (pip, GitHub Actions) sont fusionnées automatiquement si elle réussit, les majeures et l'image Docker restent à valider à la main.
@@ -205,6 +293,8 @@ La plateforme tourne dans une VM du homelab de l'équipe, équipée d'une RTX 20
 | Banc d'essai : codecs classiques, Ballé 2017, Ballé 2018 | disponible |
 | Entraînement Ballé 2017, en gris et en couleur | disponible |
 | CI/CD et publication des images | disponible |
+| Assistant RAG (bulle de chat), en local | disponible |
+| Assistant RAG en production, outils search_code, get_runs et suggest_config | prévu |
 | Entraînement Ballé 2018 hyperprior | prévu (inférence seule aujourd'hui) |
 | Deux entraînements simultanés sur la carte | prévu (un job à la fois aujourd'hui) |
 | Instance banc d'essai seul pour le jury et les partenaires | prévu |
