@@ -1,0 +1,165 @@
+# CI de l'assistant RAG (rag/, litellm/, bulle aidge_in_space/ui_assistant.py, sources documentaires)
+#
+# Job « lint-test » : ruff (fichiers listés dans ruff.toml) et pytest sur tests/rag ; puis, dans un environnement
+# séparé (le paquet litellm et chromadb exigent des versions incompatibles de python-dateutil), la bascule
+# LiteLLM hors ligne (litellm/test_fallback.py). LLM et Voyage simulés : aucun appel réseau, aucun secret.
+# Job « index » : reconstruit l'index avec Voyage, seulement si les sources documentaires ont changé, et le publie
+# en artefact (30 jours) avec son manifeste. Sources publiques seulement (--public-only) : les documents privés
+# n'existent qu'en local. Secret requis : VOYAGE_API_KEY. Jamais sur une pull request venue d'un fork (pas de secret).
+# Dépôt public : aucun runner auto-hébergé ici.
+name: Assistant RAG
+
+on:
+  push:
+    branches: [main, dev, "feature/**"]
+    paths:
+      - "rag/**"
+      - "litellm/**"
+      - "aidge_in_space/ui_assistant.py"
+      - "tests/rag/**"
+      - "docs/**"
+      - "README.md"
+      - "locod/spike/README.md"
+      - "**.pdf"
+      - "ruff.toml"
+      - ".github/workflows/rag.yml"
+  pull_request:
+    paths:
+      - "rag/**"
+      - "litellm/**"
+      - "aidge_in_space/ui_assistant.py"
+      - "tests/rag/**"
+      - "docs/**"
+      - "README.md"
+      - "locod/spike/README.md"
+      - "**.pdf"
+      - "ruff.toml"
+      - ".github/workflows/rag.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: rag-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  PYTHONIOENCODING: utf-8
+  # La table des prix de LiteLLM n'est pas téléchargée à l'import (tests hors ligne)
+  LITELLM_LOCAL_MODEL_COST_MAP: "True"
+
+jobs:
+  lint-test:
+    name: Lint et tests (sans réseau)
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: rag/requirements.txt
+
+      - name: Dépendances de l'assistant
+        run: |
+          python -m pip install -r rag/requirements.txt "gradio>=6.31.0" "pytest>=9.2.0" "ruff==0.17.4"
+
+      - name: Ruff
+        run: ruff check --output-format=github .
+
+      - name: Tests de l'assistant
+        run: python -m pytest -q tests/rag
+
+      - name: Bascule LiteLLM (hors ligne, faux fournisseurs)
+        run: |
+          python -m venv /tmp/litellm-venv
+          /tmp/litellm-venv/bin/pip install -q "litellm==1.106.8" "pytest>=9.2.0" pyyaml
+          /tmp/litellm-venv/bin/python -m pytest -q litellm/test_fallback.py
+
+  # Les sources documentaires ont-elles changé ? (catalogue, code d'ingestion, docs du dépôt, PDF)
+  changes:
+    name: Sources modifiées ?
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      sources: ${{ steps.filter.outputs.sources }}
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dorny/paths-filter@v4
+        id: filter
+        with:
+          filters: |
+            sources:
+              - "rag/sources.yaml"
+              - "rag/chunking.py"
+              - "rag/ingest.py"
+              - "rag/embeddings.py"
+              - "rag/store.py"
+              - "rag/config.py"
+              - "docs/**"
+              - "README.md"
+              - "locod/spike/README.md"
+              - "**.pdf"
+
+  index:
+    name: Reconstruction de l'index (Voyage)
+    needs: [lint-test, changes]
+    if: >-
+      (needs.changes.outputs.sources == 'true' || github.event_name == 'workflow_dispatch')
+      && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: rag/requirements.txt
+
+      - name: Dépendances de l'assistant
+        run: python -m pip install -r rag/requirements.txt
+
+      # Cache des embeddings et des sources téléchargées : seuls les passages modifiés repartent chez Voyage
+      - uses: actions/cache@v6
+        with:
+          path: |
+            rag/index/embeddings.sqlite
+            rag/sources/cache
+          key: rag-embeddings-${{ hashFiles('rag/sources.yaml', 'rag/chunking.py', 'rag/config.py', 'docs/**', 'README.md') }}
+          restore-keys: rag-embeddings-
+
+      - name: Ingestion (sources publiques, Voyage)
+        env:
+          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+        run: |
+          if [ -z "$VOYAGE_API_KEY" ]; then
+            echo "::error::Secret VOYAGE_API_KEY absent (Settings > Secrets and variables > Actions)"
+            exit 1
+          fi
+          python -m rag.ingest --public-only --backend voyage
+
+      # Artefact : la version d'index en service, son manifeste (empreinte des sources, modèle, date) à la racine
+      - name: Préparation de l'artefact
+        run: |
+          version="rag/index/$(cat rag/index/CURRENT)"
+          mkdir -p artefact
+          cp -r "$version" artefact/index
+          cp "$version/manifest.json" artefact/manifest.json
+          python - <<'EOF'
+          import json
+          m = json.load(open("artefact/manifest.json", encoding="utf-8"))
+          assert m["public_only"] is True and all(s["visibility"] == "public" for s in m["sources"])
+          print(f"{m['chunks']} passages, backends {list(m['backends'])}, sources {m['sources_hash'][:12]}, {m['created']}")
+          EOF
+
+      - uses: actions/upload-artifact@v7
+        with:
+          name: rag-index-${{ github.sha }}
+          path: artefact/
+          retention-days: 30
+          if-no-files-found: error

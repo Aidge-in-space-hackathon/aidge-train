@@ -1,0 +1,53 @@
+# Questions de référence de l'assistant RAG (évaluation manuelle, hors CI) : python -m rag.eval.run [--llm]
+# sources : identifiants de source (rag/sources.yaml) dont au moins un passage doit sortir dans le top 5 ;
+#           files (facultatif) : fragment du nom de fichier attendu ; vide : la bonne réponse est « je ne sais pas ».
+# attendu : ce que la réponse doit contenir, pour la relecture humaine.
+
+questions:
+  - question: Comment fonctionne la GDN ?
+    sources: [balle2017]
+    attendu: normalisation divisive généralisée, chaque canal divisé par une combinaison des énergies des canaux, citée avec la page du papier
+
+  - question: Pourquoi remplace-t-on la quantification par un bruit uniforme pendant l'entraînement ?
+    sources: [balle2017]
+    attendu: la quantification a un gradient nul presque partout ; le bruit additif uniforme donne une relaxation continue
+
+  - question: Quelle fonction de coût est optimisée par le modèle de Ballé ?
+    sources: [balle2017]
+    attendu: compromis débit + lambda x distorsion (R + λD), entropie des codes quantifiés et MSE
+
+  - question: Comment les coefficients quantifiés sont-ils codés en binaire ?
+    sources: [balle2017]
+    attendu: codage arithmétique avec un modèle de densité appris (linéaire par morceaux)
+
+  - question: Quels sont les principes fondateurs d'Aidge ?
+    sources: [erts2026, aidge]
+    attendu: communautaire et sans dépendance, représentation intermédiaire hiérarchique, traçabilité, interopérabilité
+
+  - question: Comment charger un modèle ONNX dans Aidge ?
+    sources: [aidge, projet]
+    files: [Onnx, conception_optimisation]
+    attendu: aidge_onnx.load_onnx, sans argument verbose en 0.10.1 ; aucune fonction inventée
+
+  - question: Comment quantifier un réseau avec Aidge ?
+    sources: [aidge, projet]
+    files: [Quantization, conception_optimisation, guide_interface]
+    attendu: quantification post-entraînement (PTQ) d'aidge_quantization ; la GDN (Sqrt) n'est pas quantifiable en 0.10.1
+
+  - question: Comment LoCod repère-t-il les fonctions à accélérer sur le FPGA ?
+    sources: [locod, projet]
+    attendu: marquage des fonctions dans le code C (macro FPGA), génération des accélérateurs par HLS
+
+  - question: Comment lancer un entraînement depuis l'interface ?
+    sources: [projet]
+    files: [guide_interface]
+    attendu: onglet 1. Entraîner, préréglage ou hyperparamètres, un job par lambda, suivi dans l'onglet 2
+
+  - question: Pourquoi la recette mixte laisse-t-elle la GDN en flottant ?
+    sources: [projet]
+    files: [conception_optimisation, guide_interface]
+    attendu: Aidge 0.10.1 ne quantifie pas Sqrt ; chaque convolution est quantifiée seule, la GDN reste en float
+
+  - question: Quelle est la capitale du Pérou ?
+    sources: []
+    attendu: « Je ne sais pas » (hors du périmètre de la documentation)
