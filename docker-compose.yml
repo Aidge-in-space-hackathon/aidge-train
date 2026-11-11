@@ -25,11 +25,45 @@ services:
       AIDGE_UI_BIND: ${AIDGE_UI_BIND:-127.0.0.1}
       AIDGE_UI_USERS: ${AIDGE_UI_USERS:-}
       AIDGE_MAX_UPLOAD_MB: ${AIDGE_MAX_UPLOAD_MB:-500}
+      # Assistant RAG (bulle de chat) : proxy LiteLLM du réseau compose, jamais publié sur l'hôte
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      EMBEDDINGS_BACKEND: ${EMBEDDINGS_BACKEND:-auto}
     # /runs est un volume nommé : le verrouillage SQLite n'est pas fiable sur un dossier Windows monté
     volumes:
       - .:/workspace
       - runs:/runs
     shm_size: 1gb
+    # L'interface démarre même si LiteLLM est absent ou sans clé : la bulle l'indique
+    depends_on:
+      litellm:
+        condition: service_started
+
+  # Proxy LiteLLM de l'assistant RAG : modèle « assistant », bascule NVIDIA NIM -> Mistral -> Groq
+  # (litellm/config.yaml). Aucun port publié : seule l'app l'appelle, sur http://litellm:4000.
+  # Clés : fichier .env (voir .env.example). Image Docker Hub officielle, version figée.
+  litellm:
+    image: litellm/litellm:v1.106.8
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      NVIDIA_NIM_API_KEY: ${NVIDIA_NIM_API_KEY:-}
+      MISTRAL_API_KEY: ${MISTRAL_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      # Table des modèles embarquée : pas de téléchargement au démarrage
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
+    # L'image (Wolfi) n'a pas curl : contrôle de santé en Python, route sans authentification
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      start_interval: 5s
+      retries: 3
+    restart: unless-stopped
 
   # Worker : exécute la file d'entraînement (docker compose up worker). Seul service à réserver la carte
   # NVIDIA. Ne pas le mélanger avec une interface lancée dans le venv.

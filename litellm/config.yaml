@@ -1,0 +1,54 @@
+# Proxy LiteLLM de l'assistant RAG (service « litellm » de docker-compose.yml, image litellm/litellm figée).
+# L'application appelle le modèle « assistant » sur http://litellm:4000 avec le client OpenAI.
+# Ordre de bascule : NVIDIA NIM (principal) -> Mistral (secours 1) -> Groq (secours 2).
+# Offres gratuites uniquement : clés lues dans .env (voir .env.example), jamais écrites ici.
+# Identifiants vérifiés le 2026-11-11 dans la table des modèles de LiteLLM 1.106.8 (appel d'outils pris en charge)
+# et chez chaque fournisseur. Vérification hors ligne : python -m pytest litellm/test_fallback.py
+
+model_list:
+  # Principal : Nemotron 3 Super sur l'API NVIDIA (endpoint gratuit « Prototype », conditions d'essai NVIDIA)
+  - model_name: assistant
+    litellm_params:
+      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+      api_key: os.environ/NVIDIA_NIM_API_KEY
+  # Secours 1 : Mistral Small 4 (version 26.03), plan gratuit de Mistral
+  - model_name: assistant-mistral
+    litellm_params:
+      model: mistral/mistral-small-2603
+      api_key: os.environ/MISTRAL_API_KEY
+  # Secours 2 : gpt-oss-120b, modèle de production Groq, offre gratuite
+  - model_name: assistant-groq
+    litellm_params:
+      model: groq/openai/gpt-oss-120b
+      api_key: os.environ/GROQ_API_KEY
+
+router_settings:
+  # Toute erreur restante après les nouvelles tentatives (429, 5xx, délai dépassé) bascule vers le groupe suivant
+  fallbacks:
+    - assistant: [assistant-mistral, assistant-groq]
+  # Délai par appel, en secondes : au-delà, l'appel compte comme un échec et bascule
+  timeout: 45
+  num_retries: 1
+  # 429 : inutile d'insister sur un quota épuisé, on bascule tout de suite. 5xx : une nouvelle tentative.
+  retry_policy:
+    RateLimitErrorRetries: 0
+    TimeoutErrorRetries: 0
+    InternalServerErrorRetries: 1
+    AuthenticationErrorRetries: 0
+    BadRequestErrorRetries: 0
+  # Mise à l'écart (cooldown) d'un fournisseur après un échec : les questions suivantes vont directement au
+  # secours pendant cooldown_time secondes, au lieu d'attendre une nouvelle erreur.
+  allowed_fails_policy:
+    RateLimitErrorAllowedFails: 0
+    TimeoutErrorAllowedFails: 0
+    InternalServerErrorAllowedFails: 1
+  cooldown_time: 60
+
+litellm_settings:
+  # Pas de télémétrie, pas de téléchargement de la table des prix au démarrage
+  telemetry: false
+  drop_params: true
+
+general_settings:
+  # Toute requête doit porter cette clé (Authorization: Bearer ...). Elle doit commencer par « sk- ».
+  master_key: os.environ/LITELLM_MASTER_KEY
