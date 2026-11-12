@@ -2,15 +2,21 @@
 # L'application appelle le modèle « assistant » sur http://litellm:4000 avec le client OpenAI.
 # Ordre de bascule : NVIDIA NIM (principal) -> Groq (secours).
 # Offres gratuites uniquement : clés lues dans .env (voir .env.example), jamais écrites ici.
-# Identifiants vérifiés le 2026-11-11 dans la table des modèles de LiteLLM 1.106.8 (appel d'outils pris en charge)
-# et chez chaque fournisseur. Vérification hors ligne : python -m pytest litellm/test_fallback.py
+# Identifiants vérifiés le 2026-11-12 chez chaque fournisseur, appel d'outils compris (nemotron-3-super-120b-a12b,
+# pourtant au catalogue NVIDIA, répond 404 « Function not found for account » à notre clé).
+# Vérification hors ligne : python -m pytest litellm/test_fallback.py
 
 model_list:
-  # Principal : Nemotron 3 Super sur l'API NVIDIA (endpoint gratuit « Prototype », conditions d'essai NVIDIA)
+  # Principal : Nemotron 3.5 Lightning sur l'API NVIDIA (endpoint gratuit « Prototype », conditions d'essai NVIDIA)
   - model_name: assistant
     litellm_params:
-      model: nvidia_nim/nvidia/nemotron-3-super-120b-a12b
+      model: nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b
       api_key: os.environ/NVIDIA_NIM_API_KEY
+      # Raisonnement coupé : des secondes de réflexion silencieuse avant chaque appel d'outil et chaque réponse,
+      # pour un gain faible sur une réponse qui cite des passages fournis
+      extra_body:
+        chat_template_kwargs:
+          enable_thinking: false
   # Secours : gpt-oss-120b, modèle de production Groq, offre gratuite
   - model_name: assistant-groq
     litellm_params:

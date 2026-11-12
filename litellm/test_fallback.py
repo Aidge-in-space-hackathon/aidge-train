@@ -147,7 +147,7 @@ def test_config_declares_fallback_chain():
     assert groups == ORDER
     providers = [m["litellm_params"]["model"].split("/")[0] for m in cfg["model_list"]]
     assert providers == ["nvidia_nim", "groq"]
-    assert cfg["model_list"][0]["litellm_params"]["model"] == "nvidia_nim/nvidia/nemotron-3-super-120b-a12b"
+    assert cfg["model_list"][0]["litellm_params"]["model"] == "nvidia_nim/nvidia/nemotron-3.5-lightning-30b-a3b"
     router = cfg["router_settings"]
     assert router["fallbacks"] == [{"assistant": ["assistant-groq"]}]
     assert router["num_retries"] >= 1 and router["timeout"] > 0 and router["cooldown_time"] > 0
