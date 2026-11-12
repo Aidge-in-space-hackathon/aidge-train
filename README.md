@@ -190,7 +190,7 @@ Une bulle 💬, en bas à droite de tous les onglets, ouvre un assistant qui ré
 flowchart LR
     U([Bulle 💬<br/>ui_assistant.py]) --> AG["Agent<br/>rag/agent.py"]
     AG -- "client OpenAI" --> L["Proxy LiteLLM<br/>http://litellm:4000"]
-    L --> N["NVIDIA NIM<br/>Nemotron 3 Super"]
+    L --> N["NVIDIA NIM<br/>Nemotron 3.5 Lightning"]
     L -. "429, 5xx, délai" .-> G["Groq<br/>gpt-oss-120b"]
     AG -- "outil search_docs" --> R["Recherche<br/>rag/retrieval.py"]
     R --> B["BM25"]
@@ -255,7 +255,7 @@ Un fournisseur en échec est mis à l'écart 60 s : les questions suivantes vont
 
 - **Voyage, sans moyen de paiement** : 3 requêtes et 10K tokens par minute. Une question consomme 2 requêtes (embedding et rerank). Au-delà de 3 s d'attente, la question passe en local, avec une recherche de moindre qualité. Le rerank est limité à 8 candidats pour tenir dans ce budget. Les 200 M de tokens offerts ne s'épuisent pas à cette échelle.
 - **NVIDIA NIM** : endpoint gratuit « Prototype », régi par les conditions d'essai NVIDIA, prévu pour le prototypage et non pour la production. Le débit et la durée de l'offre peuvent changer sans préavis.
-- **Groq** : quotas par minute et par jour limités (environ 8K tokens par minute pour gpt-oss-120b, à vérifier dans la console). Une réponse avec 5 passages en consomme 4 à 6K : le secours encaisse quelques questions par minute, pas plus.
+- **Groq** : quotas par minute et par jour limités (environ 8K tokens par minute pour gpt-oss-120b, à vérifier dans la console). Une question en consomme environ 4K (passages tronqués à 1 200 caractères) : le secours encaisse une à deux questions par minute, pas plus.
 - **Exposition** : ces quotas sont partagés par toute l'équipe. La bulle est donc désactivée dès que l'interface est joignable depuis le réseau sans authentification devant. LiteLLM n'est jamais publié. Le déploiement en production fera l'objet d'une PR séparée.
 - **Licence** : PyMuPDF, qui lit les PDF, est sous licence AGPL-3.0, ce qui reste compatible tant que le dépôt et l'image restent publics.
 

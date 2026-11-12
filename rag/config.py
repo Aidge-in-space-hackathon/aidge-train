@@ -26,6 +26,9 @@ RETRIEVE_CANDIDATES = 20
 RERANK_CANDIDATES = 8
 ## Passages rendus par search_docs.
 TOP_K = 5
+## Caractères de texte au plus par passage rendu au LLM (coupé sur un espace) : 5 passages pleins coûtaient ~3 700
+## tokens par question, au-delà du budget de 8K tokens/min du secours Groq pour deux questions rapprochées.
+PASSAGE_MAX_CHARS = 1200
 ## Constante de la fusion RRF (valeur usuelle de Cormack et al., 2009).
 RRF_K = 60
 

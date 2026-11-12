@@ -29,11 +29,26 @@ class Passage:
     def to_tool(self):
         """! @brief Forme renvoyée au LLM par l'outil search_docs.
 
-        @return dict (source à citer, fichier, page, section, texte).
+        @return dict (source à citer, qui contient déjà la section ; fichier ; page ; texte, tronqué à
+                config.PASSAGE_MAX_CHARS caractères pour ménager les quotas du LLM).
         """
         c = self.chunk
-        return {"source": c.citation(), "fichier": c.source, "page": c.page, "section": c.section,
-                "texte": c.text}
+        return {"source": c.citation(), "fichier": c.source, "page": c.page,
+                "texte": truncate(c.text, config.PASSAGE_MAX_CHARS)}
+
+
+def truncate(text, limit):
+    """! @brief Coupe un texte trop long sur le dernier espace avant la limite, en le signalant.
+
+    @param text   Texte.
+    @param limit  Nombre de caractères au plus (hors marque de coupure).
+    @return Le texte, ou son début suivi de « […] ».
+    """
+    if len(text) <= limit:
+        return text
+    head = text[:limit]
+    cut = head.rfind(" ")
+    return (head[:cut] if cut > limit // 2 else head).rstrip() + " […]"
 
 
 @dataclass
@@ -103,6 +118,24 @@ class Retriever:
         if self._local is None:
             self._local = LocalEmbedder()
         return self._local
+
+    def warm(self):
+        """! @brief Charge d'avance l'index, ses collections Chroma et le modèle local (une dizaine de secondes de
+        CPU), pour que la première question n'attende pas. Le modèle local sert de repli même avec Voyage : il est
+        toujours chargé. Chroma ne lit l'index vectoriel d'une collection qu'à sa première requête (~4 s chacune).
+
+        @return True si l'index a pu être chargé ; False s'il n'existe pas encore.
+        """
+        try:
+            index = self.index()
+        except IndexMissing:
+            return False
+        if "local" in index.backends():
+            self.local().embed_query("préchauffage")
+        for backend, info in index.manifest.get("backends", {}).items():
+            if info.get("dim"):
+                index.vector_search(backend, [1.0] + [0.0] * (int(info["dim"]) - 1), 1)
+        return True
 
     def _dense(self, index, query, n, result):
         """! @brief Classement vectoriel, Voyage d'abord, local en repli.

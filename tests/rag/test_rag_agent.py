@@ -1,4 +1,5 @@
 """Agent : boucle d'appel d'outils en streaming, limite d'itérations, sources, erreurs. LLM simulé."""
+import json
 from types import SimpleNamespace as NS
 
 import pytest
@@ -112,3 +113,54 @@ def test_cited_keeps_only_cited_files():
     passages = [{"source": "a", "fichier": "balle.pdf"}, {"source": "b", "fichier": "docs/x.md"}]
     assert cited("voir [balle.pdf, p. 3]", passages) == passages[:1]
     assert cited("sans citation", passages) == passages
+
+
+def test_empty_answer_is_reported_not_disguised():
+    """Un flux sans aucun texte (constaté après un quota Groq) donne une erreur lisible, pas « Je ne sais pas »."""
+    from rag.agent import EMPTY_ANSWER
+    client = FakeClient([tool_chunks("search_docs", '{"query": "GDN"}'), [NS(choices=[])]])
+    events = list(Agent(client, "assistant", registry([])).run("Comment fonctionne la GDN ?"))
+    assert [e.kind for e in events] == ["tool", "error"]
+    assert events[-1].data == EMPTY_ANSWER
+
+
+XML_CALL = ("<tool_call>\n<function=search_docs>\n<parameter=k>\n10\n</parameter>\n"
+            "<parameter=query>\nBallé λ\n</parameter>\n</function>\n</tool_call>")
+
+
+def test_text_filter_hides_a_written_tool_call_even_split_across_chunks():
+    from rag.agent import TextCallFilter
+    f = TextCallFilter()
+    shown = "".join(f.feed(p) for p in ["Je cherche. <to", "ol_call>\n<function=search_docs>", "...</tool_call>"])
+    assert shown + f.flush() == "Je cherche. " and f.captured.startswith("<tool_call>")
+    g = TextCallFilter()                                    # « < » ordinaire : rendu, seulement retardé
+    assert "".join(g.feed(p) for p in ["a <", "b et x < y"]) + g.flush() == "a <b et x < y"
+    assert g.captured == ""
+
+
+def test_parse_text_calls_decodes_json_values():
+    from rag.agent import parse_text_calls
+    (call,) = parse_text_calls(XML_CALL)
+    assert call.name == "search_docs" and call.id == "texte0"
+    assert json.loads(call.arguments) == {"k": 10, "query": "Ballé λ"}
+    assert parse_text_calls("rien") == []
+
+
+def test_written_tool_call_is_executed_and_never_shown():
+    log = []
+    client = FakeClient([text_chunks(XML_CALL[:20] + "|" + XML_CALL[20:]), text_chunks("Réponse [balle.pdf, p. 3].")])
+    events = list(Agent(client, "assistant", registry(log)).run("question"))
+    assert log == ["Ballé λ"]
+    text = "".join(e.data for e in events if e.kind == "text")
+    assert text == "Réponse [balle.pdf, p. 3]." and "<" not in text
+    assert events[-1].kind == "sources"
+
+
+def test_last_turn_asks_for_an_answer_and_drops_a_written_call():
+    from rag.agent import FINAL_TURN
+    turns = [tool_chunks("search_docs", '{"query": "q"}'), text_chunks("Voici. " + XML_CALL)]
+    client = FakeClient(turns)
+    events = list(Agent(client, "assistant", registry([]), max_iterations=2).run("question"))
+    assert client.requests[1]["messages"][-1] == {"role": "user", "content": FINAL_TURN}
+    assert "".join(e.data for e in events if e.kind == "text") == "Voici. "
+    assert events[-1].kind == "sources"

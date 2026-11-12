@@ -41,6 +41,7 @@ SOURCES_MARK = "\n\n---\n**Sources**"
 
 _ingest_started = False
 _ingest_lock = threading.Lock()
+_warm_started = False
 
 
 def _is_loopback(host):
@@ -174,8 +175,37 @@ def start_ingest():
             for extra in passes:
                 subprocess.run([sys.executable, "-m", "rag.ingest", "--if-stale", *extra], cwd=root, env=env,
                                stdout=f, stderr=subprocess.STDOUT, check=False)
+                if extra:                                # index local prêt (premier lancement) : on le précharge
+                    warm()
 
     threading.Thread(target=work, name="rag-ingest", daemon=True).start()
+
+
+def warm():
+    """! @brief Précharge l'index et le modèle d'embeddings local du processus ; sans effet s'il n'y a pas d'index.
+
+    Sans cela, la première question paie les imports de chromadb et fastembed et le chargement du modèle
+    (15 à 25 s mesurées dans le conteneur). Ne lève jamais : un échec laisse la première question s'en charger.
+    @return True si l'index est chargé.
+    """
+    try:
+        from rag.retrieval import get_retriever
+        return get_retriever().warm()
+    except Exception:                                    # dépendances absentes, index illisible : sans gravité
+        return False
+
+
+def start_warm():
+    """! @brief Lance warm() en arrière-plan, une fois par processus. AIDGE_ASSISTANT_AUTO_INGEST=0 le désactive
+    aussi (tests, environnements sans index)."""
+    global _warm_started
+    if os.environ.get("AIDGE_ASSISTANT_AUTO_INGEST", "1") == "0":
+        return
+    with _ingest_lock:
+        if _warm_started:
+            return
+        _warm_started = True
+    threading.Thread(target=warm, name="rag-warm", daemon=True).start()
 
 
 def respond(message, history):
@@ -234,6 +264,7 @@ def mount(host=None):
             gr.Markdown(why, elem_classes="chat-status")
         else:
             start_ingest()
+            start_warm()
             note = gr.Markdown(index_message(), elem_classes="chat-status")
             chat = gr.Chatbot(height=380, show_label=False, buttons=["copy"],
                               placeholder="Posez une question : « Comment fonctionne la GDN ? »")

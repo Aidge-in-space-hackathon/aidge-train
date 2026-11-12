@@ -84,3 +84,19 @@ def test_mount_in_blocks(monkeypatch, key):
     chatbots = [b for b in demo.blocks.values() if isinstance(b, gr.Chatbot)]
     assert len(chatbots) == (1 if key else 0)                # désactivé : aucune route de chat
     assert "#chat-panel.open" in ua.CSS and "chat-panel" in ua.TOGGLE_JS
+
+
+def test_warm_never_raises_and_respects_auto_ingest(monkeypatch):
+    import threading
+
+    from aidge_in_space import ui_assistant
+    assert ui_assistant.warm() is False                        # pas d'index : aucune exception
+    started = []
+    monkeypatch.setattr(threading.Thread, "start", lambda self: started.append(self.name))
+    monkeypatch.setattr(ui_assistant, "_warm_started", False)
+    ui_assistant.start_warm()                                  # AIDGE_ASSISTANT_AUTO_INGEST=0 (conftest)
+    assert started == []
+    monkeypatch.setenv("AIDGE_ASSISTANT_AUTO_INGEST", "1")
+    ui_assistant.start_warm()
+    ui_assistant.start_warm()                                  # une seule fois par processus
+    assert started == ["rag-warm"]
