@@ -48,6 +48,27 @@ questions:
     files: [conception_optimisation, guide_interface]
     attendu: Aidge 0.10.1 ne quantifie pas Sqrt ; chaque convolution est quantifiée seule, la GDN reste en float
 
+  - question: À quoi sert l'hyperprior dans le modèle bmshj2018 ?
+    sources: [balle2018, compressai]
+    attendu: des latents z décrivent les écarts-types (échelles) d'une gaussienne par élément de y ; information annexe transmise, débit plus bas qu'avec le modèle factorisé
+
+  - question: Quelle est la différence entre une quantification par tenseur et par canal ?
+    sources: [nagel2021, jacob2018]
+    attendu: par canal, une échelle par canal de sortie des poids, utile quand les plages des canaux diffèrent beaucoup ; par tenseur, une seule échelle
+
+  - question: Comment une convolution est-elle calculée en arithmétique entière int8 ?
+    sources: [jacob2018, nagel2021]
+    attendu: r = S(q - Z), accumulation en int32, recalage par un multiplicateur entier et un décalage ; aucun flottant à l'inférence
+
+  - question: Quelle transformée le standard CCSDS 122.0 utilise-t-il pour compresser une image ?
+    sources: [ccsds122, ccsds120]
+    attendu: transformée en ondelettes discrète (DWT 9/7, flottante ou entière) sur 3 niveaux, puis codeur de plans de bits (BPE) par segments
+
+  - question: Comment activer l'analyse statique du code C++ exporté par Aidge ?
+    sources: [aidge]
+    files: [aidge_export_cpp]
+    attendu: ExportConfig(static_analysis=...) passé à export ; Cppcheck et Clang-Tidy à installer à part, dans le PATH
+
   - question: Quelle est la capitale du Pérou ?
     sources: []
     attendu: « Je ne sais pas » (hors du périmètre de la documentation)

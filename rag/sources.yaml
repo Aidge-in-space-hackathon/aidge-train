@@ -9,7 +9,7 @@
 # Les téléchargements sont épinglés (version arXiv, version HAL, tag ou commit) et vérifiés par SHA-256 :
 # un fichier qui a changé à la source est refusé, il faut alors mettre à jour cette entrée.
 # Fichiers téléchargés : rag/sources/cache/ ; fichiers privés : rag/sources/private/ (non versionnés).
-# Vérifié le 2026-11-11.
+# Vérifié le 2026-11-12.
 
 sources:
   - id: balle2017
@@ -21,6 +21,83 @@ sources:
     file: balle2017_end2end_1611.01704v3.pdf
     sha256: fef402bbcd084e97c4c184a03c8893f6c027f5cadd23f30cf6c2265381bcf6ba
     license: licence arXiv (non exclusive)
+
+  # Codec bmshj2018 du benchmark (factorized et hyperprior, codecs/bmshj2018.py)
+  - id: balle2018
+    title: "Ballé, Minnen, Singh, Hwang, Johnston : Variational image compression with a scale hyperprior (ICLR 2018)"
+    visibility: public
+    kind: url
+    url: https://arxiv.org/pdf/1802.01436v2
+    version: arXiv 1802.01436v2
+    file: balle2018_hyperprior_1802.01436v2.pdf
+    sha256: 48f2accf70d56f3e8a807ec7cb9dfbdec57183a4fa8a1c6fb6f90a2d8406d94f
+    license: licence arXiv (non exclusive)
+
+  # Définition et propriétés de la GDN (normalisation divisive généralisée)
+  - id: balle2016
+    title: "Ballé, Laparra, Simoncelli : Density Modeling of Images using a Generalized Normalization Transformation (ICLR 2016)"
+    visibility: public
+    kind: url
+    url: https://arxiv.org/pdf/1511.06281v4
+    version: arXiv 1511.06281v4
+    file: balle2016_gdn_1511.06281v4.pdf
+    sha256: 812cc13b215d4f9526a1b27434dfa131194bca034a251251a894e0327b7a9989
+    license: licence arXiv (non exclusive)
+
+  # Origine des poids préentraînés bmshj2018 et des noms de couches repris dans nn.py
+  - id: compressai
+    title: "Bégaint, Racapé, Feltman, Pushparaja : CompressAI, a PyTorch library for end-to-end compression research"
+    visibility: public
+    kind: url
+    url: https://arxiv.org/pdf/2011.03029v1
+    version: arXiv 2011.03029v1
+    file: compressai_2011.03029v1.pdf
+    sha256: f69c375c5654fa59deac522223daded776799dbbecacd02c2f9303a86f5de30b
+    license: licence arXiv (non exclusive)
+
+  # Quantification post-entraînement : par canal, clipping, calibration (options de la recette d'optimisation)
+  - id: nagel2021
+    title: "Nagel et al. : A White Paper on Neural Network Quantization (Qualcomm, 2021)"
+    visibility: public
+    kind: url
+    url: https://arxiv.org/pdf/2106.08295v1
+    version: arXiv 2106.08295v1
+    file: nagel2021_quantization_2106.08295v1.pdf
+    sha256: 38f01637303599a9c38f24a122ce7b420a6c44d0df568c02a1c69ea5bfde262c
+    license: CC BY 4.0
+
+  # Inférence entière int8 (échelle et point zéro, multiplicateur entier)
+  - id: jacob2018
+    title: "Jacob et al. : Quantization and Training of Neural Networks for Efficient Integer-Arithmetic-Only Inference (CVPR 2018)"
+    visibility: public
+    kind: url
+    url: https://arxiv.org/pdf/1712.05877v1
+    version: arXiv 1712.05877v1
+    file: jacob2018_int8_1712.05877v1.pdf
+    sha256: 049f08b194f03bb401e96c841708da3b71ae0924261224bc34444ebdc41ff675
+    license: licence arXiv (non exclusive)
+
+  # Standard de compression d'images spatiales, référence face au codec appris
+  - id: ccsds122
+    title: "CCSDS 122.0-B-2 : Image Data Compression, Recommended Standard (Blue Book, 2017, EC 1 2024)"
+    visibility: public
+    kind: url
+    url: https://ccsds.org/Pubs/122x0b2e1.pdf
+    version: 122.0-B-2 EC 1
+    file: ccsds_122x0b2e1.pdf
+    sha256: a780af5c0981b592084b4e631be25f7f31b8ef1a86f58178a312c1ea0d5963db
+    license: publication CCSDS en libre accès
+
+  # Rapport explicatif du même standard : principes, choix de conception, performances
+  - id: ccsds120
+    title: "CCSDS 120.1-G-3 : Image Data Compression, Informational Report (Green Book, 2021)"
+    visibility: public
+    kind: url
+    url: https://ccsds.org/Pubs/120x1g3.pdf
+    version: 120.1-G-3
+    file: ccsds_120x1g3.pdf
+    sha256: 9d5d1b0434de8b92b0f6113d59ac4ba9d944d6790093ceec0279e9f1c7d92ee0
+    license: publication CCSDS en libre accès
 
   - id: erts2026
     title: "Moineau et al. : Aidge, a comprehensive and traceable library (ERTS 2026)"
@@ -60,6 +137,15 @@ sources:
       - {path: docs/source/API/Core/data.rst, sha256: 4b00e327582c7ef6989bbba67667bfac08e08d5ac8e9e12eb75c4bb9ac567a36}
       - {path: docs/source/API/Onnx/index.rst, sha256: d8a7bf29d0ce34863173dcaf0af8278c0cd9d4d72cc471389645de6dfa82bae4}
       - {path: docs/source/API/Quantization/index.rst, sha256: 3a7435228e87b765297e9e6cd0c768141a58b2ab63e8f331b9e24ca452eca11c}
+      - {path: docs/source/Benchmark/index.rst, sha256: de8dab1f4cb29876e1bc24d866bda10e052cb6deeb880f42014e72b8d23a49da}
+      # README des modules, dans le même dépôt au même commit
+      - {path: aidge/aidge_core/README.md, sha256: de6ee6e50ce2cca644deaef0e30e16203329fb9d033b1de9d0931d18b3eec1b1}
+      - {path: aidge/aidge_core/aidge_core/hw_model/README.md, sha256: 8042c8d407eeb034e26fa2683ba851192060713466bbe431384b4587d7b16b3b}
+      - {path: aidge/aidge_backend_cpu/README.md, sha256: cbf6a0827fe75e1f77766f59469230386f3c3b6fc83b01bc01d938d684a49881}
+      - {path: aidge/aidge_onnx/README.md, sha256: d8fe4ee91c9ee4a9d7bc96e45c77690496a2a7d1516ab480f3ba63d64105caee}
+      - {path: aidge/aidge_quantization/README.md, sha256: 44006bef18cbd377994f48da3bf2119f977d7fe43aa60a13a09eadb9b9014639}
+      - {path: aidge/aidge_export_cpp/README.md, sha256: ed92f585f8b00267b816336cffb5586c11a1e0eb6ac18d7147f3f75b9af96432}
+      - {path: aidge/aidge_benchmark/README.md, sha256: 041658cce7370b9986225886c5fadd19635ac2de51698a5cd350754316987741}
 
   - id: locod
     title: "LoCod (Viveris) : README et documentation"
