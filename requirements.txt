@@ -23,11 +23,11 @@ onnxruntime>=1.31.1
 
 # Aidge : import ONNX, inférence CPU, export C++, quantification.
 # Wheels publiés seulement pour Windows et Linux x86_64 : ignorés ailleurs (macOS, ARM).
-aidge-core==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
-aidge-backend-cpu==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
-aidge-onnx==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
-aidge-export-cpp==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
-aidge-quantization==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+aidge-core==0.11.0; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+aidge-backend-cpu==0.11.0; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+aidge-onnx==0.11.0; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+aidge-export-cpp==0.11.0; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
+aidge-quantization==0.11.0; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
 
 # Banc d'essai (python -m aidge_in_space.app) et ses tests
 gradio>=6.31.0
