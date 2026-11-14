@@ -21,12 +21,17 @@ install -d "$DEPLOY_DIR"
 if [ ! -f "$script_dir/docker-compose.prod.yml" ]; then
   repo_dir="$(dirname "$script_dir")"
   cp "$repo_dir/docker-compose.prod.yml" "$repo_dir/docker-compose.prod.gpu.yml" "$DEPLOY_DIR/"
+  install -D -m 644 "$repo_dir/litellm/config.yaml" "$DEPLOY_DIR/litellm/config.yaml"
   install -m 755 "$repo_dir/scripts/deploy.sh" "$DEPLOY_DIR/deploy.sh"
 fi
 cd "$DEPLOY_DIR"
 
 # Réglages propres au serveur (AIDGE_UI_BIND, AIDGE_UI_USERS...), créés à la main, jamais versionnés
 touch .env
+# Clés de l'assistant RAG (LITELLM_MASTER_KEY, NVIDIA_NIM_API_KEY, GROQ_API_KEY, VOYAGE_API_KEY), facultatives :
+# sans elles, la bulle s'affiche désactivée
+env_files=(--env-file .env)
+if [ -f secrets.env ]; then env_files+=(--env-file secrets.env); fi
 
 files=(-f docker-compose.prod.yml)
 case "$VARIANT" in
@@ -42,7 +47,7 @@ if [ -f release.env ]; then
 fi
 printf 'AIDGE_IMAGE=%s\nAIDGE_TAG=%s\n' "$AIDGE_IMAGE" "$AIDGE_TAG" > release.env
 
-compose() { docker compose "${files[@]}" --env-file .env --env-file release.env "$@"; }
+compose() { docker compose "${files[@]}" "${env_files[@]}" --env-file release.env "$@"; }
 
 echo "Déploiement de $AIDGE_IMAGE:$AIDGE_TAG (variante $VARIANT) dans $DEPLOY_DIR"
 compose config -q

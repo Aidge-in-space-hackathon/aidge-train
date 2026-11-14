@@ -224,7 +224,7 @@ flowchart LR
 | `GROQ_API_KEY` | aucune | fournisseur de secours ([console.groq.com](https://console.groq.com)) |
 | `VOYAGE_API_KEY` | aucune | embeddings et rerank ([dash.voyageai.com](https://dash.voyageai.com)) ; sans elle, repli local |
 | `EMBEDDINGS_BACKEND` | `auto` | `auto` (Voyage si la clé est là, plus le repli local), `voyage` ou `local` |
-| `AIDGE_ASSISTANT_TRUSTED_AUTH` | non défini | `1` : autorise la bulle sur une interface exposée au réseau, à condition qu'une authentification la protège |
+| `AIDGE_ASSISTANT_TRUSTED_AUTH` | non défini | `1` : autorise la bulle sur une interface exposée au réseau , à condition qu'une authentification la protège (en prod : Authelia devant Caddy) |
 | `AIDGE_ASSISTANT_AUTO_INGEST` | `1` | `0` : pas de construction automatique de l'index au démarrage |
 
 ### Commandes
