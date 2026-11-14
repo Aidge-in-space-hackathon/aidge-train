@@ -18,3 +18,7 @@ locod
 # Réglages locaux (secrets, adresses), jamais versionnés ni copiés
 .env
 *.env
+
+# Assistant RAG : index et sources (reconstruits ou téléchargés à l'usage)
+rag/index
+rag/sources

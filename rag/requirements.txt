@@ -1,0 +1,12 @@
+# Dépendances de l'assistant RAG (rag/ et aidge_in_space/ui_assistant.py).
+# Incluses par requirements.txt (venv, image Docker) ; installées seules par la CI de l'assistant (.github/workflows/rag.yml).
+# PyMuPDF est sous licence AGPL-3.0 : compatible tant que le dépôt reste public.
+chromadb>=1.5.9
+pymupdf>=2.1
+rank-bm25>=0.2.2
+# Repli local sans clé (modèle téléchargé au premier usage dans rag/index/models)
+fastembed>=0.9.1
+# Client du proxy LiteLLM ; < 3 : même version majeure que celle qu'impose le paquet litellm (tests de bascule)
+openai>=2.54,<3
+httpx>=0.28.1
+pyyaml>=6.0.3

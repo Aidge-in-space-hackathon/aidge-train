@@ -3,3 +3,5 @@
 Dockerfile text eol=lf
 # Scripts batch en CRLF, sinon cmd.exe peut mal lire les étiquettes et les blocs
 *.bat text eol=crlf
+# Graine de vecteurs de l'assistant RAG : binaire, jamais de conversion de fins de ligne
+*.sqlite binary

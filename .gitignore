@@ -3,6 +3,9 @@ data/
 outputs/
 .vscode/
 
+# Carte du code générée par Floorplan
+floorplan/
+
 # Byte-compiled / optimized / DLL files
 __pycache__/
 *.py[codz]
@@ -224,3 +227,7 @@ __marimo__/
 
 # Documentation Doxygen générée (doxygen Doxyfile)
 docs/html/
+
+# Assistant RAG : index, cache des embeddings, modèles locaux et sources téléchargées ou privées
+rag/index/
+rag/sources/
