@@ -26,6 +26,17 @@ AIDGE_MAX_UPLOAD_MB=500
 
 Le pare-feu Proxmox de la VM n'accepte le port 7860 que depuis l'adresse de Caddy.
 
+Les clés de l'assistant RAG vont dans `/opt/aidge-train/secrets.env`, lui aussi créé à la main et lisible seulement par `aidge-runner` (`chmod 600`). `scripts/deploy.sh` le passe à `docker compose` s'il existe ; sans lui, la plateforme démarre et la bulle s'affiche désactivée.
+
+```bash
+LITELLM_MASTER_KEY=sk-...        # clé au choix, partagée par le proxy LiteLLM et l'app
+NVIDIA_NIM_API_KEY=...
+GROQ_API_KEY=...
+VOYAGE_API_KEY=...               # facultative : sans elle, recherche locale seulement
+```
+
+Le service `litellm` n'est publié sur aucun port. L'interface étant exposée sur le réseau, la bulle reste désactivée tant que `.env` ne contient pas `AIDGE_ASSISTANT_TRUSTED_AUTH=1`, qui atteste qu'Authelia protège l'accès : sans authentification, n'importe qui joignant l'interface consommerait les quotas d'API. L'index de l'assistant est construit au premier démarrage, en arrière-plan, dans le volume `aidge-train-prod_cache` : il est gardé d'une version à l'autre.
+
 Le runner s'installe depuis GitHub, dans *Settings, Actions, Runners, New self-hosted runner* : la page donne les commandes à exécuter en tant que `aidge-runner`. Au moment du `config.sh`, ajouter l'étiquette `aidge-deploy`, puis l'installer comme service pour qu'il redémarre avec la machine (`sudo ./svc.sh install aidge-runner`, puis `sudo ./svc.sh start`).
 
 ### Sur GitHub

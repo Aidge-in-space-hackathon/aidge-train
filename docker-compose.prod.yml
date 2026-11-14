@@ -6,6 +6,8 @@
 # Carte NVIDIA pour le worker : ajouter docker-compose.prod.gpu.yml.
 # AIDGE_IMAGE et AIDGE_TAG : release.env, écrit par scripts/deploy.sh.
 # AIDGE_UI_BIND, AIDGE_UI_USERS et AIDGE_MAX_UPLOAD_MB : fichier .env du dossier de déploiement (jamais versionné).
+# Clés de l'assistant RAG (LITELLM_MASTER_KEY, NVIDIA_NIM_API_KEY, GROQ_API_KEY, VOYAGE_API_KEY) : secrets.env du
+# même dossier (jamais versionné). litellm/config.yaml y est copié par scripts/deploy.sh.
 name: aidge-train-prod
 
 x-aidge: &aidge
@@ -35,6 +37,21 @@ services:
       AIDGE_UI_BIND: ${AIDGE_UI_BIND:-127.0.0.1}
       AIDGE_UI_USERS: ${AIDGE_UI_USERS:-}
       AIDGE_MAX_UPLOAD_MB: ${AIDGE_MAX_UPLOAD_MB:-500}
+      # Assistant RAG : actif seulement avec AIDGE_ASSISTANT_TRUSTED_AUTH=1 dans .env (l'interface est exposée,
+      # Authelia la protège) et LITELLM_MASTER_KEY dans secrets.env
+      LITELLM_BASE_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      VOYAGE_API_KEY: ${VOYAGE_API_KEY:-}
+      EMBEDDINGS_BACKEND: ${EMBEDDINGS_BACKEND:-auto}
+      AIDGE_ASSISTANT_TRUSTED_AUTH: ${AIDGE_ASSISTANT_TRUSTED_AUTH:-}
+      # Index et sources téléchargées dans le volume cache : gardés d'une version à l'autre, pas de réindexation
+      # à chaque déploiement (rag/index et rag/sources sont exclus de l'image)
+      RAG_INDEX_DIR: /home/aidge/.cache/rag/index
+      RAG_SOURCES_DIR: /home/aidge/.cache/rag/sources
+    # L'interface démarre même si LiteLLM est absent ou sans clé : la bulle l'indique
+    depends_on:
+      litellm:
+        condition: service_started
     # Sert à « docker compose up --wait » : le déploiement n'est validé que si l'interface répond
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:7860/', timeout=5)"]
@@ -51,6 +68,32 @@ services:
       AIDGE_RUNS_DIR: /runs
     # Laisse le temps à un entraînement de sauvegarder (STOP_TIMEOUT_S = 60 s côté worker)
     stop_grace_period: 90s
+
+  # Proxy LiteLLM de l'assistant RAG (même réglage que docker-compose.yml) : aucun port publié, seule l'app
+  # l'appelle sur http://litellm:4000.
+  litellm:
+    image: litellm/litellm:v1.106.8
+    command: ["--config", "/app/config.yaml", "--port", "4000"]
+    volumes:
+      - ./litellm/config.yaml:/app/config.yaml:ro
+    environment:
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      NVIDIA_NIM_API_KEY: ${NVIDIA_NIM_API_KEY:-}
+      GROQ_API_KEY: ${GROQ_API_KEY:-}
+      LITELLM_LOCAL_MODEL_COST_MAP: "True"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:4000/health/liveliness', timeout=5)"]
+      interval: 30s
+      timeout: 10s
+      start_period: 60s
+      start_interval: 5s
+      retries: 3
+    restart: unless-stopped
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
 
 volumes:
   runs: {}
