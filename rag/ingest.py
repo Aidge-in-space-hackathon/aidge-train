@@ -3,10 +3,13 @@
 Usage :
     python -m rag.ingest                     toutes les sources (privées comprises), backend EMBEDDINGS_BACKEND
     python -m rag.ingest --if-stale          ne fait rien si l'index en service correspond déjà aux sources
-    python -m rag.ingest --public-only --backend voyage    (CI : jamais de source privée dans l'artefact)
+    python -m rag.ingest --public-only --backend voyage    (CI : jamais de source privée)
+    python -m rag.ingest --export-seed       réécrit la graine versionnée (rag/seed/voyage.sqlite) depuis le cache
 Backends : voyage (Voyage AI, clé VOYAGE_API_KEY), local (fastembed), auto (voyage si la clé est là, plus local
 en repli). En auto, un quota Voyage épuisé n'arrête pas l'ingestion : l'index est publié avec le seul backend local,
 et le cache garde les vecteurs Voyage déjà obtenus pour la prochaine fois.
+Chaque ingestion reprend d'abord la graine versionnée dans le cache : avec l'offre gratuite de Voyage (environ un lot
+de 16 passages par minute), seuls les passages modifiés depuis la dernière graine sont recalculés.
 Codes de sortie : 0 index publié ou à jour, 1 erreur, 2 source refusée (téléchargement, SHA-256).
 """
 import argparse
@@ -104,6 +107,11 @@ def run(backend=None, public_only=False, if_stale=False, fetch=True, log=print):
     texts = [c.embed_text() for c in chunks]
 
     cache = EmbeddingCache()
+    seed = config.seed_path()
+    if seed.exists():
+        added = cache.merge(seed)
+        if added:
+            log(f"{added} vecteurs repris de la graine {seed.name}")
     vectors, infos = {}, {}
     for b in backends:
         if b == "voyage":
@@ -139,6 +147,29 @@ def run(backend=None, public_only=False, if_stale=False, fetch=True, log=print):
     return store.read_manifest()
 
 
+def export_seed(path=None, model=None, fetch=True, log=print):
+    """! @brief Réécrit la graine versionnée : vecteurs du cache pour les passages des sources publiques.
+
+    Les sources privées n'y entrent jamais (le dépôt est public). Les passages absents du cache ne sont pas calculés :
+    lancer d'abord une ingestion Voyage complète (python -m rag.ingest).
+    @param path   Fichier de sortie ; None : config.seed_path().
+    @param model  Modèle d'embeddings ; None : config.VOYAGE_EMBED_MODEL.
+    @param fetch  Faux : aucun téléchargement (sources déjà en cache).
+    @param log    Fonction d'affichage.
+    @return (vecteurs écrits, passages publics).
+    """
+    path = path or config.seed_path()
+    model = model or config.VOYAGE_EMBED_MODEL
+    docs = sources.documents(include_private=False, fetch=fetch)
+    texts = [c.embed_text() for d in docs for c in chunk_document(d)]
+    keys = list(dict.fromkeys(EmbeddingCache.key(model, "document", t) for t in texts))
+    written = EmbeddingCache().export(path, keys)
+    log(f"Graine {path} : {written}/{len(keys)} passages publics ({model})")
+    if written < len(keys):
+        log(f"  {len(keys) - written} passages manquent au cache : la CI les recalculera (environ 16 par minute)")
+    return written, len(keys)
+
+
 def main(argv=None):
     """! @brief Point d'entrée en ligne de commande.
 
@@ -150,12 +181,17 @@ def main(argv=None):
     ap = argparse.ArgumentParser(description="Construit l'index de l'assistant RAG à partir de rag/sources.yaml")
     ap.add_argument("--backend", choices=["auto", "voyage", "local"], default=None,
                     help="embeddings (défaut : EMBEDDINGS_BACKEND, sinon auto)")
-    ap.add_argument("--public-only", action="store_true", help="exclut les sources privées (CI, artefact)")
+    ap.add_argument("--public-only", action="store_true", help="exclut les sources privées (CI)")
     ap.add_argument("--if-stale", action="store_true", help="ne reconstruit que si les sources ont changé")
     ap.add_argument("--no-fetch", action="store_true", help="aucun téléchargement : sources déjà en cache")
+    ap.add_argument("--export-seed", action="store_true",
+                    help="réécrit la graine versionnée (vecteurs Voyage des sources publiques) au lieu d'ingérer")
     args = ap.parse_args(argv)
     try:
-        run(args.backend, args.public_only, args.if_stale, fetch=not args.no_fetch)
+        if args.export_seed:
+            export_seed(fetch=not args.no_fetch)
+        else:
+            run(args.backend, args.public_only, args.if_stale, fetch=not args.no_fetch)
     except sources.SourceError as e:
         print(f"Source refusée : {e}", file=sys.stderr)
         return 2

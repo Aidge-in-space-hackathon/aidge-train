@@ -63,6 +63,16 @@ def sources_dir():
     return Path(os.environ.get("RAG_SOURCES_DIR") or RAG_DIR / "sources")
 
 
+def seed_path():
+    """! @brief Graine versionnée du cache d'embeddings (RAG_SEED_VECTORS, sinon rag/seed/voyage.sqlite).
+
+    Vecteurs Voyage des passages des sources publiques, versionnés dans le dépôt : chaque ingestion les reprend,
+    et seuls les passages modifiés depuis repartent chez Voyage. Mise à jour : python -m rag.ingest --export-seed.
+    @return Path.
+    """
+    return Path(os.environ.get("RAG_SEED_VECTORS") or RAG_DIR / "seed" / "voyage.sqlite")
+
+
 def embeddings_backend():
     """! @brief Backend d'embeddings demandé (EMBEDDINGS_BACKEND).
 

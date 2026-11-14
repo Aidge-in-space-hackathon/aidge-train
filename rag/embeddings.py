@@ -2,7 +2,9 @@
 
 Sans moyen de paiement, Voyage accepte 3 requêtes et 10K tokens par minute : RateLimiter fait patienter l'ingestion
 (lots d'au plus 60 % du budget de tokens, attente exponentielle sur 429), et une question n'attend jamais plus de
-config.QUERY_MAX_WAIT_S : au-delà, QuotaExceeded déclenche le repli local. EmbeddingCache garde chaque vecteur par
+config.QUERY_MAX_WAIT_S. L'estimation des tokens sous-compte certains textes (PDF techniques) : VoyageClient la
+corrige avec le décompte réel de chaque réponse, et coupe en deux un lot que Voyage refuse encore. Pour une
+question, au-delà de l'attente permise, QuotaExceeded déclenche le repli local. EmbeddingCache garde chaque vecteur par
 empreinte du texte et du modèle : une réingestion ne renvoie à Voyage que les passages qui ont changé.
 """
 import hashlib
@@ -23,6 +25,8 @@ BATCH_TOKEN_SHARE = 0.6
 MAX_BATCH_ITEMS = 128
 ## Nouvelles tentatives sur 429 / 5xx pendant l'ingestion, attente doublée à chaque fois.
 MAX_RETRIES = 5
+## Nouvelles tentatives sur 429 pour un lot de plusieurs textes, avant de le couper en deux (trop gros pour la limite).
+SPLIT_RETRIES = 1
 ## Première attente après un 429 (s).
 BACKOFF_S = 20.0
 ## Délai d'une requête Voyage (s).
@@ -105,6 +109,18 @@ class RateLimiter:
             self.events.append((self.clock(), tokens))
             return True
 
+    def correct(self, reserved, actual):
+        """! @brief Remplace l'estimation de la dernière requête réservée à @p reserved tokens par le décompte réel.
+
+        @param reserved  Tokens réservés par acquire().
+        @param actual    Tokens réellement comptés par le service.
+        """
+        with self.lock:
+            for i in range(len(self.events) - 1, -1, -1):
+                if self.events[i][1] == reserved:
+                    self.events[i] = (self.events[i][0], actual)
+                    return
+
 
 class EmbeddingCache:
     """! @brief Cache SQLite des vecteurs, par empreinte (modèle, type d'entrée, texte).
@@ -165,6 +181,54 @@ class EmbeddingCache:
             db.executemany("INSERT OR REPLACE INTO vectors VALUES (?, ?, ?, ?)",
                            [(k, model, len(v), np.asarray(v, dtype=np.float32).tobytes()) for k, v in items.items()])
 
+    def merge(self, path):
+        """! @brief Ajoute les vecteurs d'un autre cache (la graine versionnée), sans remplacer ceux déjà connus.
+
+        @param path  Fichier SQLite au même schéma.
+        @return Nombre de vecteurs ajoutés.
+        """
+        src = sqlite3.connect(Path(path).resolve().as_uri() + "?mode=ro", uri=True)
+        try:
+            rows = src.execute("SELECT key, model, dim, vec FROM vectors").fetchall()
+        finally:
+            src.close()
+        db = self._connect()
+        try:
+            before = db.total_changes
+            with db:
+                db.executemany("INSERT OR IGNORE INTO vectors VALUES (?, ?, ?, ?)", rows)
+            return db.total_changes - before
+        finally:
+            db.close()
+
+    def export(self, path, keys):
+        """! @brief Écrit dans un nouveau fichier SQLite les vecteurs connus parmi @p keys (graine à versionner).
+
+        Écriture atomique (fichier temporaire puis renommage), lignes triées par clé.
+        @param path  Fichier de sortie, remplacé.
+        @param keys  Clés à exporter (les clés absentes du cache sont ignorées).
+        @return Nombre de vecteurs écrits.
+        """
+        rows = []
+        with self._connect() as db:
+            for i in range(0, len(keys), 500):
+                part = keys[i:i + 500]
+                marks = ",".join("?" * len(part))
+                rows += db.execute(f"SELECT key, model, dim, vec FROM vectors WHERE key IN ({marks})", part).fetchall()
+        path = Path(path)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_name(path.name + ".tmp")
+        tmp.unlink(missing_ok=True)
+        out = sqlite3.connect(tmp)
+        try:
+            with out:
+                out.execute("CREATE TABLE vectors (key TEXT PRIMARY KEY, model TEXT, dim INTEGER, vec BLOB)")
+                out.executemany("INSERT INTO vectors VALUES (?, ?, ?, ?)", sorted(rows))
+        finally:
+            out.close()
+        tmp.replace(path)
+        return len(rows)
+
 
 class VoyageClient:
     """! @brief Client HTTP minimal de l'API Voyage (embeddings et rerank), régulé.
@@ -193,20 +257,24 @@ class VoyageClient:
                                          headers={"Authorization": f"Bearer {api_key}"})
         ## Fonction d'attente.
         self.sleep = sleep or time.sleep
+        ## Rapport observé entre tokens réels et estimés des embeddings (>= 1), appliqué aux lots suivants.
+        self.ratio = 1.0
 
-    def _post(self, path, payload, tokens, max_wait=None):
+    def _post(self, path, payload, tokens, max_wait=None, retries=None):
         """! @brief Envoie une requête régulée, avec nouvelles tentatives sur 429 et 5xx si l'attente est permise.
 
         @param path      Route (/embeddings, /rerank).
         @param payload   Corps JSON.
         @param tokens    Tokens estimés.
         @param max_wait  Attente maximale (s) ; None : ingestion, attente permise.
+        @param retries   Nouvelles tentatives ; None : MAX_RETRIES si l'attente est permise, 0 sinon.
         @return Réponse JSON.
         @throws QuotaExceeded si le débit ou le quota est atteint (ou l'attente trop longue).
         @throws EmbeddingError pour une autre erreur.
         """
         import httpx
-        retries = 0 if max_wait is not None else MAX_RETRIES
+        if retries is None:
+            retries = 0 if max_wait is not None else MAX_RETRIES
         for attempt in range(retries + 1):
             if not self.limiter.acquire(tokens, max_wait):
                 raise QuotaExceeded("créneau Voyage indisponible dans le délai")
@@ -236,17 +304,44 @@ class VoyageClient:
         @return Liste de vecteurs (np.ndarray float32), dans l'ordre des textes.
         """
         model = model or config.VOYAGE_EMBED_MODEL
-        budget = max(1, int(self.limiter.tpm * BATCH_TOKEN_SHARE))
-        out = []
-        for batch in _batches(texts, budget, MAX_BATCH_ITEMS):
-            tokens = sum(estimate_tokens(t) for t in batch)
-            data = self._post("/embeddings", {"input": batch, "model": model, "input_type": input_type},
-                              tokens, max_wait)
-            rows = sorted(data["data"], key=lambda r: r["index"])
-            if len(rows) != len(batch):
-                raise EmbeddingError("Voyage : nombre de vecteurs inattendu")
-            out += [np.asarray(r["embedding"], dtype=np.float32) for r in rows]
+        budget = self.limiter.tpm * BATCH_TOKEN_SHARE
+        out, i = [], 0
+        while i < len(texts):                       # lots recalculés à chaque tour : le rapport réel/estimé évolue
+            batch = next(_batches(texts[i:], max(1, int(budget / self.ratio)), MAX_BATCH_ITEMS))
+            out += self._embed_batch(batch, input_type, model, max_wait)
+            i += len(batch)
         return out
+
+    def _embed_batch(self, batch, input_type, model, max_wait):
+        """! @brief Embeddings d'un lot ; pendant l'ingestion, un lot refusé (429) est coupé en deux.
+
+        @param batch       Textes.
+        @param input_type  "document" ou "query".
+        @param model       Modèle.
+        @param max_wait    Attente maximale (s) ; None : ingestion.
+        @return Liste de vecteurs, dans l'ordre du lot.
+        @throws QuotaExceeded si le quota est atteint (pour une question, ou pour un texte seul après MAX_RETRIES).
+        """
+        estimated = sum(estimate_tokens(t) for t in batch)
+        reserved = max(1, round(estimated * self.ratio))
+        splittable = max_wait is None and len(batch) > 1
+        try:
+            data = self._post("/embeddings", {"input": batch, "model": model, "input_type": input_type},
+                              reserved, max_wait, retries=SPLIT_RETRIES if splittable else None)
+        except QuotaExceeded:
+            if not splittable:
+                raise
+            half = len(batch) // 2
+            return (self._embed_batch(batch[:half], input_type, model, max_wait)
+                    + self._embed_batch(batch[half:], input_type, model, max_wait))
+        actual = (data.get("usage") or {}).get("total_tokens")
+        if isinstance(actual, int) and actual > 0:
+            self.limiter.correct(reserved, actual)
+            self.ratio = max(self.ratio, actual / max(1, estimated))
+        rows = sorted(data["data"], key=lambda r: r["index"])
+        if len(rows) != len(batch):
+            raise EmbeddingError("Voyage : nombre de vecteurs inattendu")
+        return [np.asarray(r["embedding"], dtype=np.float32) for r in rows]
 
     def rerank(self, query, documents, top_k, model=None, max_wait=None):
         """! @brief Reclasse des passages par pertinence pour la question.

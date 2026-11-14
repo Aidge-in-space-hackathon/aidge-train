@@ -3,10 +3,13 @@
 # Job « lint-test » : ruff (fichiers listés dans ruff.toml) et pytest sur tests/rag ; puis, dans un environnement
 # séparé (le paquet litellm et chromadb exigent des versions incompatibles de python-dateutil), la bascule
 # LiteLLM hors ligne (litellm/test_fallback.py). LLM et Voyage simulés : aucun appel réseau, aucun secret.
-# Job « index » : reconstruit l'index avec Voyage, seulement si les sources documentaires ont changé, et le publie
-# en artefact (30 jours) avec son manifeste. Sources publiques seulement (--public-only) : les documents privés
-# n'existent qu'en local. Secret requis : VOYAGE_API_KEY. Jamais sur une pull request venue d'un fork (pas de secret).
-# Dépôt public : aucun runner auto-hébergé ici.
+# Job « eval » : mesure la qualité de la recherche (rag/eval/questions.yaml, chaîne Voyage complète) quand les sources
+# ou le code de recherche changent. L'index est reconstruit à partir de la graine versionnée rag/seed/voyage.sqlite :
+# seuls les passages modifiés depuis repartent chez Voyage (offre gratuite : ~16 passages par minute). Le cache est
+# sauvegardé même si le job échoue ou est annulé, le run suivant reprend donc là où il s'est arrêté.
+# Sources publiques seulement (--public-only) : les documents privés n'existent qu'en local. Secret requis :
+# VOYAGE_API_KEY. Jamais sur une pull request venue d'un fork (pas de secret). Dépôt public : aucun runner
+# auto-hébergé ici.
 name: Assistant RAG
 
 on:
@@ -79,39 +82,45 @@ jobs:
           /tmp/litellm-venv/bin/pip install -q "litellm==1.106.8" "pytest>=9.2.0" pyyaml
           /tmp/litellm-venv/bin/python -m pytest -q litellm/test_fallback.py
 
-  # Les sources documentaires ont-elles changé ? (catalogue, code d'ingestion, docs du dépôt, PDF)
+  # Les sources ou la recherche ont-elles changé ? (catalogue, ingestion, recherche, questions, graine, docs, PDF)
   changes:
-    name: Sources modifiées ?
+    name: Sources ou recherche modifiées ?
     runs-on: ubuntu-latest
     timeout-minutes: 5
     outputs:
-      sources: ${{ steps.filter.outputs.sources }}
+      search: ${{ steps.filter.outputs.search }}
     steps:
       - uses: actions/checkout@v7
       - uses: dorny/paths-filter@v4
         id: filter
         with:
           filters: |
-            sources:
+            search:
               - "rag/sources.yaml"
+              - "rag/sources.py"
               - "rag/chunking.py"
               - "rag/ingest.py"
               - "rag/embeddings.py"
               - "rag/store.py"
+              - "rag/retrieval.py"
               - "rag/config.py"
+              - "rag/eval/**"
+              - "rag/seed/**"
               - "docs/**"
               - "README.md"
               - "locod/spike/README.md"
               - "**.pdf"
 
-  index:
-    name: Reconstruction de l'index (Voyage)
+  eval:
+    name: Qualité de la recherche (Voyage)
     needs: [lint-test, changes]
     if: >-
-      (needs.changes.outputs.sources == 'true' || github.event_name == 'workflow_dispatch')
+      (needs.changes.outputs.search == 'true' || github.event_name == 'workflow_dispatch')
       && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
+    env:
+      VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
     steps:
       - uses: actions/checkout@v7
 
@@ -124,18 +133,17 @@ jobs:
       - name: Dépendances de l'assistant
         run: python -m pip install -r rag/requirements.txt
 
-      # Cache des embeddings et des sources téléchargées : seuls les passages modifiés repartent chez Voyage
-      - uses: actions/cache@v6
+      # Cache des vecteurs (en plus de la graine versionnée) et des sources téléchargées. Clé unique par run,
+      # restauration du plus récent : les vecteurs calculés par un run échoué ou annulé ne sont pas perdus.
+      - uses: actions/cache/restore@v6
         with:
           path: |
             rag/index/embeddings.sqlite
             rag/sources/cache
-          key: rag-embeddings-${{ hashFiles('rag/sources.yaml', 'rag/chunking.py', 'rag/config.py', 'docs/**', 'README.md') }}
+          key: rag-embeddings-${{ github.run_id }}-${{ github.run_attempt }}
           restore-keys: rag-embeddings-
 
-      - name: Ingestion (sources publiques, Voyage)
-        env:
-          VOYAGE_API_KEY: ${{ secrets.VOYAGE_API_KEY }}
+      - name: Ingestion (sources publiques, Voyage, graine versionnée)
         run: |
           if [ -z "$VOYAGE_API_KEY" ]; then
             echo "::error::Secret VOYAGE_API_KEY absent (Settings > Secrets and variables > Actions)"
@@ -143,23 +151,23 @@ jobs:
           fi
           python -m rag.ingest --public-only --backend voyage
 
-      # Artefact : la version d'index en service, son manifeste (empreinte des sources, modèle, date) à la racine
-      - name: Préparation de l'artefact
-        run: |
-          version="rag/index/$(cat rag/index/CURRENT)"
-          mkdir -p artefact
-          cp -r "$version" artefact/index
-          cp "$version/manifest.json" artefact/manifest.json
-          python - <<'EOF'
-          import json
-          m = json.load(open("artefact/manifest.json", encoding="utf-8"))
-          assert m["public_only"] is True and all(s["visibility"] == "public" for s in m["sources"])
-          print(f"{m['chunks']} passages, backends {list(m['backends'])}, sources {m['sources_hash'][:12]}, {m['created']}")
-          EOF
+      - name: Évaluation de la recherche (questions de référence)
+        run: python -m rag.eval.run --wait | tee eval.txt
 
-      - uses: actions/upload-artifact@v7
+      - name: Résumé
+        if: always() && hashFiles('eval.txt') != ''
+        run: |
+          {
+            echo "### Recherche RAG : $(grep "^Recherche :" eval.txt || echo "incomplète")"
+            echo '```'
+            cat eval.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/cache/save@v6
+        if: always()
         with:
-          name: rag-index-${{ github.sha }}
-          path: artefact/
-          retention-days: 30
-          if-no-files-found: error
+          path: |
+            rag/index/embeddings.sqlite
+            rag/sources/cache
+          key: rag-embeddings-${{ github.run_id }}-${{ github.run_attempt }}

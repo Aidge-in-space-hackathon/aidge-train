@@ -199,7 +199,7 @@ flowchart LR
     S["rag/sources.yaml"] --> I["Ingestion<br/>rag/ingest.py"] --> C
 ```
 
-- **Sources** : [`rag/sources.yaml`](rag/sources.yaml) est la seule liste de référence. Chaque téléchargement est épinglé (version arXiv, version HAL, tag ou commit Git) et vérifié par SHA-256 : un fichier modifié à la source est refusé. La plaquette et la présentation du challenge, privées, se copient à la main dans `rag/sources/private/`. Elles ne sont ingérées qu'en local, jamais en CI ni dans l'artefact d'index.
+- **Sources** : [`rag/sources.yaml`](rag/sources.yaml) est la seule liste de référence. Chaque téléchargement est épinglé (version arXiv, version HAL, tag ou commit Git) et vérifié par SHA-256 : un fichier modifié à la source est refusé. La plaquette et la présentation du challenge, privées, se copient à la main dans `rag/sources/private/`. Elles ne sont ingérées qu'en local, jamais en CI ni dans la graine de vecteurs versionnée.
 - **Découpage** : les documents sont découpés par section (titres Markdown et reStructuredText, table des matières des PDF), en passages d'environ 800 tokens avec 100 de chevauchement. Chaque passage garde son fichier, sa page et sa section.
 - **Recherche** :
   - BM25 et vecteurs Chroma, fusionnés par RRF ;
@@ -213,7 +213,7 @@ flowchart LR
 2. Lancer `docker compose up --build`. Le service `litellm` démarre avec l'app et n'est publié sur aucun port de l'hôte : seule l'app l'appelle.
 3. Au premier démarrage, l'app construit l'index en arrière-plan (journal : `rag/index/ingest.log`) :
    - d'abord en local avec fastembed, sans clé, en 2 minutes environ ;
-   - puis avec Voyage, plus long : les 435 passages, environ 134K tokens, se calculent en un quart d'heure environ au rythme de l'offre gratuite.
+   - puis avec Voyage : les vecteurs des sources publiques viennent de la graine versionnée [`rag/seed/voyage.sqlite`](rag/seed/voyage.sqlite), seuls les passages modifiés depuis sont recalculés. Sans graine, l'offre gratuite calcule environ 16 passages par minute, soit une heure pour les quelque 950 passages.
 
    Seuls les passages qui changent sont recalculés ensuite.
 
@@ -234,7 +234,8 @@ python -m rag.ingest                    # (re)construit l'index ; --if-stale : s
 python -m rag.ingest --backend local    # sans clé Voyage
 python -m rag.ask "Comment fonctionne la GDN ?"
 python -m rag.ask --search-only "GDN"   # passages trouvés, sans LLM
-python -m rag.eval.run [--llm]          # questions de référence (rag/eval/questions.yaml), hors CI
+python -m rag.ingest --export-seed      # réécrit la graine de vecteurs Voyage (sources publiques) depuis le cache
+python -m rag.eval.run [--wait] [--llm] # questions de référence (rag/eval/questions.yaml) ; --wait : en CI
 python -m pytest tests/rag              # tests unitaires, sans réseau
 python -m pytest litellm/test_fallback.py   # bascule LiteLLM hors ligne (pip install litellm==1.106.8)
 docker compose exec app python litellm/test_fallback.py --live --url http://litellm:4000   # bascule réelle
@@ -261,11 +262,13 @@ Un fournisseur en échec est mis à l'écart 60 s : les questions suivantes vont
 
 ### Index et CI
 
-L'index (`rag/index/`) n'est pas versionné. Le workflow [`rag.yml`](.github/workflows/rag.yml) comporte deux jobs :
-- **Lint et tests**, à chaque modification de l'assistant : ruff, tests de l'assistant et bascule LiteLLM hors ligne, sans réseau ni secret.
-- **Reconstruction de l'index**, quand les sources changent : ingestion avec Voyage des seules sources publiques, publiée en artefact pendant 30 jours. L'artefact contient l'index et un manifeste : empreinte des sources, modèle d'embedding, date. Ce job demande le secret de dépôt `VOYAGE_API_KEY`.
+L'index (`rag/index/`) n'est pas versionné. La graine [`rag/seed/voyage.sqlite`](rag/seed/voyage.sqlite) l'est : ce sont les vecteurs Voyage des passages des sources publiques, environ 4 Mo. Chaque ingestion la reprend dans son cache, en local comme en CI. Après un ajout important de sources, la rafraîchir : ingestion Voyage complète en local, puis `python -m rag.ingest --export-seed` et commit du fichier. Entre deux rafraîchissements, seuls les passages modifiés repartent chez Voyage.
 
-En local, l'app reconstruit l'index elle-même si l'index est absent ou si l'empreinte des sources a changé (`--if-stale`). Télécharger l'artefact demanderait un jeton GitHub, même sur un dépôt public : cette option reste à ajouter si la reconstruction locale devient trop lente.
+Le workflow [`rag.yml`](.github/workflows/rag.yml) comporte deux jobs :
+- **Lint et tests**, à chaque modification de l'assistant : ruff, tests de l'assistant et bascule LiteLLM hors ligne, sans réseau ni secret.
+- **Qualité de la recherche**, quand les sources ou le code de recherche changent : reconstruction de l'index avec Voyage (sources publiques, à partir de la graine), puis `python -m rag.eval.run --wait` sur les questions de référence, chaîne Voyage complète, sans repli. Le score s'affiche dans le résumé du run. Comptez une dizaine de minutes, surtout pour les questions (2 requêtes chacune, 3 par minute). Le cache des vecteurs est sauvegardé même si le job échoue ou est annulé. Ce job demande le secret de dépôt `VOYAGE_API_KEY`.
+
+En local, l'app reconstruit l'index elle-même si l'index est absent ou si l'empreinte des sources a changé (`--if-stale`).
 
 ## Contribuer
 

@@ -11,6 +11,7 @@ def isolated_rag(tmp_path, monkeypatch):
     monkeypatch.setenv("RAG_INDEX_DIR", str(tmp_path / "index"))
     monkeypatch.setenv("RAG_SOURCES_DIR", str(tmp_path / "sources"))
     monkeypatch.setenv("AIDGE_ASSISTANT_AUTO_INGEST", "0")
+    monkeypatch.setenv("RAG_SEED_VECTORS", str(tmp_path / "seed" / "voyage.sqlite"))   # absente : graine ignorée
     for var in ("VOYAGE_API_KEY", "LITELLM_MASTER_KEY", "EMBEDDINGS_BACKEND", "AIDGE_UI_BIND", "AIDGE_UI_HOST",
                 "AIDGE_ASSISTANT_TRUSTED_AUTH", "VOYAGE_RPM", "VOYAGE_TPM"):
         monkeypatch.delenv(var, raising=False)

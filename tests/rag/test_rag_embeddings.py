@@ -105,6 +105,46 @@ def test_voyage_quota_exceeded_after_retries_and_at_query_time():
     assert hits == [1]
 
 
+def test_voyage_splits_a_batch_refused_as_too_big_during_ingestion():
+    log = []
+
+    def handler(request):                                            # plus d'un texte : toujours trop gros
+        body = json.loads(request.content)
+        log.append(len(body["input"]))
+        if len(body["input"]) > 1:
+            return httpx.Response(429, json={"detail": "rate limit"})
+        return httpx.Response(200, json={"data": [{"index": 0, "embedding": [float(len(body["input"][0])), 1.0]}]})
+
+    client, clock = voyage(handler)
+    texts = ["a" * 40, "b" * 80, "c" * 120]
+    assert [v[0] for v in client.embed(texts, "document")] == [40.0, 80.0, 120.0]
+    assert log == [3, 3, 1, 2, 2, 1, 1]                              # 1 nouvelle tentative, puis coupé en deux
+    assert clock.waits == [20.0, 20.0]
+
+
+def test_voyage_learns_real_token_count_and_shrinks_next_batches():
+    sizes = []
+
+    def handler(request):                                            # Voyage compte 2x l'estimation
+        body = json.loads(request.content)
+        sizes.append(len(body["input"]))
+        data = [{"index": i, "embedding": [1.0]} for i in range(len(body["input"]))]
+        return httpx.Response(200, json={"data": data, "usage": {"total_tokens": 600 * len(body["input"])}})
+
+    client, _ = voyage(handler, tpm=1000)                            # lots de 600 tokens estimés
+    client.embed(["a" * 1200] * 4, "document")                       # 300 tokens estimés chacun
+    assert sizes == [2, 1, 1] and client.ratio == pytest.approx(2.0)
+
+
+def test_rate_limiter_correct_uses_real_token_count():
+    clock = Clock()
+    lim = RateLimiter(rpm=100, tpm=1000, clock=clock, sleep=clock.sleep)
+    assert lim.acquire(300)
+    assert lim.wait_time(200) == 0
+    lim.correct(300, 900)                                            # le service en a compté 900
+    assert lim.wait_time(200) == pytest.approx(60)
+
+
 def test_voyage_other_errors():
     client, _ = voyage(lambda r: httpx.Response(401, json={"detail": "clé invalide"}))
     with pytest.raises(EmbeddingError, match="401"):
