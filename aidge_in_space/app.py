@@ -17,7 +17,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from PIL import Image
 
-from . import backends, bench, config, profiling, ui_optim, ui_style, ui_training
+from . import backends, bench, config, profiling, ui_assistant, ui_optim, ui_style, ui_training
 from .codecs import LearnedCodec, all_codecs, closest_level, discover, get
 from .images import MODE_LABELS, convert, datasets, download_kodak, load_image
 from .metrics import MS_SSIM_MIN_SIDE
@@ -595,9 +595,10 @@ Les campagnes sont écrites dans `outputs/bench/*.csv` (jamais écrasées) et re
 """.replace("{MS_SSIM_MIN_SIDE}", str(MS_SSIM_MIN_SIDE))
 
 
-def build():
+def build(host=None):
     """! @brief Construit l'interface (sans la lancer).
 
+    @param host  Adresse d'écoute, pour le garde-fou d'exposition de l'assistant ; None : AIDGE_UI_HOST.
     @return gr.Blocks.
     """
     ds = dataset_choices()
@@ -750,6 +751,9 @@ def build():
         reload_btn.click(reload_codecs, mode, menus)
         connect(mode, menus, reload_codecs, menus_fn=codec_menus, open_model_fn=open_model,
                 open_model_outputs=[t_model, t_level, t_refs])
+
+        # ------------------------------------------------ assistant RAG, flottant sur tous les onglets
+        ui_assistant.mount(host)
     return demo
 
 
@@ -777,9 +781,9 @@ def main(argv=None):
         raise SystemExit(2) from None
     download_kodak()
     discover()
-    build().queue().launch(server_name=host, server_port=args.port, inbrowser=args.inbrowser,
-                           max_file_size=f"{upload_mb}mb", theme=ui_style.THEME,
-                           css=ui_style.CSS, allowed_paths=[str(config.CKPT_DIR)])
+    build(host).queue().launch(server_name=host, server_port=args.port, inbrowser=args.inbrowser,
+                               max_file_size=f"{upload_mb}mb", theme=ui_style.THEME,
+                               css=ui_style.CSS + ui_assistant.CSS, allowed_paths=[str(config.CKPT_DIR)])
 
 
 if __name__ == "__main__":
