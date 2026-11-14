@@ -9,7 +9,7 @@ torch>=2.14.1
 numpy>=1.26
 # Noyaux compilés du codeur arithmétique (aidge_in_space/entropy.py) ; sans numba, repli en Python pur
 numba==0.68.1
-pandas>=3.1.0
+pandas>=3.1.1
 pyyaml>=6.0.3
 
 # Images et figures (Pillow inclut JPEG 2000 via OpenJPEG)
@@ -23,6 +23,8 @@ onnxruntime>=1.31.1
 
 # Aidge : import ONNX, inférence CPU, export C++, quantification.
 # Wheels publiés seulement pour Windows et Linux x86_64 : ignorés ailleurs (macOS, ARM).
+# Épinglés à la main, ignorés par Dependabot : aidge-quantization 0.11 exige aidge_backend_cuda,
+# qui fait échouer import aidge_core sans bibliothèques CUDA (image CPU de la CI).
 aidge-core==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
 aidge-backend-cpu==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
 aidge-onnx==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
@@ -37,5 +39,5 @@ pytest>=9.2.0
 -r rag/requirements.txt
 
 # Notebooks
-jupyterlab>=4.6.5
+jupyterlab>=4.6.6
 ipykernel>=7.4.0

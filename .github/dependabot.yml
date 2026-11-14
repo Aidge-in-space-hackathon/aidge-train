@@ -25,6 +25,10 @@ updates:
       # à retirer quand cet index propose une version plus récente
       - dependency-name: torch
         versions: [">=2.15"]
+      # Aidge : migration à la main sur une branche dédiée, en revalidant l'export (pièges propres à la 0.10.1).
+      # La 0.11 (PR #30, fusionnée malgré la CI en échec) exige aidge_backend_cuda même sans GPU :
+      # import aidge_core échoue dans l'image CPU (libcublas.so.12 absente).
+      - dependency-name: "aidge-*"
   - package-ecosystem: github-actions
     directory: /
     schedule:
