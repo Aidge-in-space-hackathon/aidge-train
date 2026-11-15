@@ -619,7 +619,7 @@ DEFAULT_MAX_UPLOAD_MB = 500
 ## Taille décompressée maximale d'une archive : ce facteur fois la limite d'envoi.
 UNZIP_FACTOR = 2
 ## Nombre maximal de fichiers dans une archive.
-MAX_ZIP_FILES = 10_000
+MAX_ZIP_FILES = 50_000
 ## Noms réservés de Windows, refusés tels quels.
 WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", "COM1", …, "COM9", "LPT1", …, "LPT9"}
 ```
@@ -970,7 +970,7 @@ découverts, donc sur les vrais checkpoints de `outputs/checkpoints` ; les nouve
 | **Jeu d'entraînement vide** | `ConfigError` (code 2) pour un jeu précis ; repli sur Kodak seulement pour `data/train` racine (fidèle au notebook) |
 | **Contention CPU** (entraînement et banc sur le même PC) | `torch.set_num_threads(cpu_count - 1)` sur CPU ; bannière Suivi « un entraînement fausse les temps du banc » ; GPU conseillé pour Standard |
 | **Zip slip** (`../`, chemin absolu, lettre de lecteur, lien symbolique) | Contrôle de tous les membres avant écriture, archive entière refusée ; arborescence aplatie et noms assainis |
-| **Bombe zip et gros envois** | Somme déclarée bornée (`UNZIP_FACTOR × AIDGE_MAX_UPLOAD_MB`), compteur réel pendant l'extraction, au plus 10 000 membres ; `max_file_size` Gradio ; `DecompressionBombError` de PIL traitée |
+| **Bombe zip et gros envois** | Somme déclarée bornée (`UNZIP_FACTOR × AIDGE_MAX_UPLOAD_MB`), compteur réel pendant l'extraction, au plus 50 000 membres ; `max_file_size` Gradio ; `DecompressionBombError` de PIL traitée |
 | **Noms de fichiers dangereux** | `safe_name` (ASCII, caractères sûrs, noms réservés Windows) |
 | **Exposition réseau** | Écoute par défaut `127.0.0.1` (Gradio et compose) ; authentification et refus au démarrage retirés temporairement : hors de cette adresse, l'accès n'est protégé que par le pare-feu et Authelia |
 | **Injection SQL ou de commande** | Requêtes paramétrées uniquement ; sous-processus en liste, sans `shell=True` ; le nom du run n'apparaît jamais dans une commande |
