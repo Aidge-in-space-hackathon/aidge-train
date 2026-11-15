@@ -80,7 +80,7 @@ Ce qu'il faut savoir :
 - **Formats acceptés** : les images courantes (PNG, JPEG, TIFF, etc.) et les archives **zip** contenant des images. Les fichiers qui ne sont pas des images sont ignorés, avec un message.
 - **Taille conseillée** : au moins 256 pixels de côté. Une image plus petite est gardée, mais elle sera agrandie pendant l'entraînement, et vous recevez un avertissement.
 - **Images 16 bits** (fréquentes en imagerie spatiale) : elles sont converties en 8 bits en étirant leurs valeurs jusqu'à leur maximum, et un message vous le dit.
-- **Limites** : l'envoi total est limité à 500 Mo par défaut. Un zip peut contenir au plus 10 000 fichiers, et sa taille une fois décompressé est limitée au double de la taille maximale d'envoi.
+- **Limites** : l'envoi total est limité à 500 Mo par défaut. Un zip peut contenir au plus 50 000 fichiers, et sa taille une fois décompressé est limitée au double de la taille maximale d'envoi.
 - **Tout ou rien** : si l'envoi échoue (archive illisible, trop gros, aucune image valide), rien n'est ajouté au jeu. Corrigez et recommencez.
 - Les images illisibles sont écartées avec un message, et le reste de l'envoi est conservé.
 

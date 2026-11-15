@@ -51,7 +51,7 @@ DEFAULT_MAX_UPLOAD_MB = 500
 ## Taille décompressée maximale d'une archive : ce facteur fois la limite d'envoi.
 UNZIP_FACTOR = 2
 ## Nombre maximal de fichiers dans une archive.
-MAX_ZIP_FILES = 10_000
+MAX_ZIP_FILES = 50_000
 ## Noms réservés de Windows, refusés tels quels.
 WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10)),
                     *(f"LPT{i}" for i in range(1, 10))}
