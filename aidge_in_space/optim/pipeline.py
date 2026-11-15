@@ -340,7 +340,7 @@ def run(cfg, job_id=None, out=None, should_stop=None, on_stage=None, log_path=No
 
     @param cfg          OptimConfig.
     @param job_id       Numéro du job, ou None en mode --config.
-    @param out          Dossier de résultats ; None : config.OPTIM_DIR/<id>.
+    @param out          Dossier de résultats ; None : `config.OPTIM_DIR/<id>`.
     @param should_stop  Fonction sans argument scrutée entre les étapes.
     @param on_stage     Fonction (numéro d'étape, nom).
     @param log_path     Journal du job, recopié en run.log à la fin.

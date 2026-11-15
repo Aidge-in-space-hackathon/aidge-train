@@ -58,7 +58,7 @@ def _str(field, v):
 
 
 def _check(cond, field, problem, value):
-    """! @brief Lève ConfigError("<champ> : <problème> (reçu <valeur>)") si la condition est fausse."""
+    """! @brief Lève ConfigError(« champ : problème (reçu valeur) ») si la condition est fausse."""
     if not cond:
         raise ConfigError(f"{field} : {problem} (reçu {value!r})")
 

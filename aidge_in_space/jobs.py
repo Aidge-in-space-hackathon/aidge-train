@@ -288,7 +288,7 @@ class JobStore:
     def job_dir(self, job_id: int) -> Path:
         """! @brief Dossier d'un job (config.yaml, train.log) ; non créé.
         @param job_id Identifiant du job.
-        @return Chemin RUNS_DIR/<id>.
+        @return Chemin `RUNS_DIR/<id>`.
         """
         return self.path.parent / str(job_id)
 
