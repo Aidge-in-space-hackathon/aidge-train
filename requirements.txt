@@ -32,7 +32,7 @@ aidge-export-cpp==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform !=
 aidge-quantization==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform != "darwin"
 
 # Banc d'essai (python -m aidge_in_space.app) et ses tests
-gradio>=6.31.0
+gradio>=6.32.0
 pytest>=9.2.0
 
 # Assistant RAG (bulle de chat) : liste dans rag/requirements.txt (le Dockerfile la copie à côté de celle-ci)
