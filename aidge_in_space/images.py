@@ -37,7 +37,11 @@ def download_kodak(dest=KODAK_DIR):
 
 
 def list_images(folder):
-    """! @brief Images d'un dossier et de ses sous-dossiers, triées par chemin."""
+    """! @brief Images d'un dossier et de ses sous-dossiers, triées par chemin.
+
+    @param folder  Dossier à parcourir (absent : liste vide).
+    @return Chemins dont l'extension figure dans IMAGE_EXTS.
+    """
     return sorted(p for p in Path(folder).rglob("*") if p.suffix.lower() in IMAGE_EXTS)
 
 
@@ -61,6 +65,8 @@ def datasets():
 def convert(img, mode):
     """! @brief Convertit une image PIL ou un tableau dans le mode demandé.
 
+    Limite connue : une image 16 bits n'est pas remise à l'échelle et sature (l'entraînement, lui,
+    passe par aidge_in_space.training.imaging.to_8bit()).
     @param img   Image PIL ou tableau numpy.
     @param mode  @c "gris" ou @c "rgb".
     @return Tableau uint8, H x W (gris) ou H x W x 3 (rgb).

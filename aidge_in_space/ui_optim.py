@@ -206,8 +206,12 @@ def friendly_error(message):
 
 def build_config(name, author, checkpoint, codec, in_ch, tile_side, recipes, clipping, per_channel, n_calibration,
                  calibration_set, n_images, export, compile_export, indicative=False, indicative_reason=""):
-    """! @brief Configuration d'optimisation depuis le formulaire.
+    """! @brief Configuration d'optimisation depuis le formulaire, pour un seul checkpoint.
 
+    Les paramètres sont ceux de launch_jobs(), sauf ceux du checkpoint, déjà résolus par list_sources() :
+    @param checkpoint  Chemin du checkpoint (relatif au dépôt si possible).
+    @param codec       Identifiant du codec d'origine.
+    @param in_ch       Canaux du checkpoint, qui deviennent ceux de la tuile.
     @return OptimConfig validée.
     @throws ValueError si un champ est invalide (message affichable tel quel).
     """
@@ -227,6 +231,9 @@ def build_config(name, author, checkpoint, codec, in_ch, tile_side, recipes, cli
 def _checked_sources(checkpoints, sources):
     """! @brief Sources des checkpoints cochés, dans l'ordre.
 
+    @param checkpoints  Chemins cochés.
+    @param sources      Résultat de list_sources() ; None : lu à l'appel.
+    @return Dictionnaires de list_sources() correspondants.
     @throws ValueError si rien n'est coché ou si un checkpoint est inconnu.
     """
     if not checkpoints:
@@ -488,7 +495,12 @@ def results_hint(reports):
 
 
 def _series_levels(reports, recipe):
-    """! @brief Niveaux d'une série pour le BD-rate : pour chaque job, la variante et le FP32 du même checkpoint."""
+    """! @brief Niveaux d'une série pour le BD-rate : pour chaque job, la variante et le FP32 du même checkpoint.
+
+    @param reports  Rapports de la série.
+    @param recipe   Recette comparée au FP32.
+    @return Entrée de aidge_in_space.optim.evaluate.bd_series() ; les jobs sans variante utilisable sont omis.
+    """
     levels = []
     for report in reports:
         v, fp32 = report["variants"].get(recipe, {}), report["variants"].get("fp32", {})

@@ -443,6 +443,7 @@ class LocalEmbedder:
         """
         ## Modèle.
         self.model = model or config.LOCAL_EMBED_MODEL
+        ## fastembed.TextEmbedding, chargé par _load() au premier appel.
         self._impl = None
 
     def _load(self):
@@ -477,8 +478,8 @@ class LocalEmbedder:
 def embed_with_cache(embedder, texts, cache, input_type="document"):
     """! @brief Vecteurs des textes, en n'appelant l'embedder que pour ceux absents du cache.
 
-    Les vecteurs obtenus sont enregistrés au fur et à mesure (par lots) : une ingestion interrompue par le quota
-    garde ce qu'elle a déjà payé.
+    Les vecteurs obtenus sont enregistrés au fur et à mesure (lots de 16 textes pour Voyage, MAX_BATCH_ITEMS en
+    local) : une ingestion interrompue par le quota garde ce qu'elle a déjà payé.
     @param embedder    VoyageEmbedder ou LocalEmbedder.
     @param texts       Textes.
     @param cache       EmbeddingCache.

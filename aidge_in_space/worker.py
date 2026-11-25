@@ -1,9 +1,9 @@
-"""! @brief Worker de la file d'entraînement : exécute les jobs un par un, chacun dans un sous-processus.
+"""! @brief Worker de la file des jobs : exécute les jobs un par un, chacun dans un sous-processus.
 
 Lancement : `python -m aidge_in_space.worker [--poll 5] [--once] [--db CHEMIN]`.
 
-Le worker ne fait jamais d'entraînement lui-même : il lance `python -m aidge_in_space.train --job-id N
---db CHEMIN --watch-stdin`, redirige sa sortie vers `RUNS_DIR/N/train.log`, entretient les battements de
+Le worker ne fait jamais le travail lui-même : il lance `python -m aidge_in_space.train --job-id N
+--db CHEMIN --watch-stdin` (ou `aidge_in_space.optimize` pour un job d'optimisation), redirige sa sortie vers `RUNS_DIR/N/train.log`, entretient les battements de
 cœur du job et du worker, puis fixe le statut final à partir du code de retour (voir jobs.EXIT_*).
 Fermer le stdin de l'enfant lui demande de sauvegarder et de s'arrêter (code 4) ; le système le ferme
 aussi si le worker disparaît, ce qui évite les processus orphelins.
@@ -102,7 +102,7 @@ def final_status(rc: int | None, cancel_requested: bool, stopping: bool, killed:
 
 def _close_stdin(proc: subprocess.Popen) -> None:
     """! @brief Ferme le stdin de l'enfant (demande d'arrêt propre), sans lever d'erreur.
-    @param proc Sous-processus d'entraînement.
+    @param proc Sous-processus du job.
     """
     try:
         if proc.stdin is not None:
@@ -117,7 +117,7 @@ def _kill_tree(proc: subprocess.Popen, wait_s: float = KILL_WAIT_S) -> None:
     proc.kill() ne tuerait que le lanceur et laisserait l'entraînement orphelin, d'où taskkill /F /T.
     Sous POSIX, l'enfant est chef de sa propre session (start_new_session) : SIGKILL à son groupe.
     Repli sur proc.kill() si l'arrêt de l'arbre échoue.
-    @param proc Sous-processus d'entraînement.
+    @param proc Sous-processus du job.
     @param wait_s Délai maximal d'attente de la fin de proc, en secondes.
     """
     try:
@@ -143,8 +143,9 @@ def run_job(store: JobStore, job: Job, cmd: list[str], poll: float, stop_event: 
             name: str | None = None) -> str:
     """! @brief Exécute un job dans un sous-processus et fixe son statut final.
     @param store File d'attente.
+    Le journal du sous-processus est `RUNS_DIR/<id>/train.log`, quel que soit le type du job.
     @param job Job pris (statut running).
-    @param cmd Commande de base ; --job-id, --db et --watch-stdin sont ajoutés.
+    @param cmd Commande de base (job_command()) ; --job-id, --db et --watch-stdin sont ajoutés.
     @param poll Période des battements de cœur, en secondes.
     @param stop_event Arrêt du worker demandé quand il est positionné.
     @param name Nom du worker (battements de cœur et en-tête du journal).
@@ -346,7 +347,7 @@ def main(argv: list[str] | None = None) -> int:
             stream.reconfigure(encoding="utf-8")
         except (AttributeError, ValueError):
             pass
-    ap = argparse.ArgumentParser(description="Worker de la file d'entraînement.")
+    ap = argparse.ArgumentParser(description="Worker de la file des jobs (entraînements et optimisations Aidge).")
     ap.add_argument("--poll", type=float, default=POLL_S, help="période de scrutation, en secondes")
     ap.add_argument("--once", action="store_true", help="traiter au plus un job puis quitter")
     ap.add_argument("--db", default=None, help="base SQLite (défaut RUNS_DIR/runs.sqlite)")

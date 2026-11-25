@@ -39,8 +39,11 @@ TOGGLE_JS = "() => { const p = document.querySelector('#chat-panel'); if (p) { p
 ## Séparateur entre la réponse et ses sources (retiré de l'historique renvoyé au LLM).
 SOURCES_MARK = "\n\n---\n**Sources**"
 
+## Vrai une fois l'ingestion d'arrière-plan lancée par ce processus (start_ingest()).
 _ingest_started = False
+## Verrou de _ingest_started et _warm_started : un seul lancement même si plusieurs sessions montent la bulle.
 _ingest_lock = threading.Lock()
+## Vrai une fois le préchargement lancé par ce processus (start_warm()).
 _warm_started = False
 
 
@@ -151,7 +154,8 @@ def start_ingest():
 
     Deux passes : d'abord le backend local (rapide, sans clé), pour que l'assistant réponde vite, puis le backend
     demandé (Voyage, régulé par l'offre gratuite). Chaque passe ne fait rien si l'index est déjà à jour.
-    Journal : <index>/ingest.log. AIDGE_ASSISTANT_AUTO_INGEST=0 désactive ce lancement.
+    Journal : @c ingest.log dans le dossier de l'index (rag.config.index_dir()). AIDGE_ASSISTANT_AUTO_INGEST=0
+    désactive ce lancement.
     """
     global _ingest_started
     if os.environ.get("AIDGE_ASSISTANT_AUTO_INGEST", "1") == "0":

@@ -1,6 +1,7 @@
 """! @brief Plan mémoire statique d'un graphe : pic d'activations, poids, comparaison à la BRAM du Zynq-7020.
 
-Un graphe mixte exige une inférence avant le plan mémoire, sinon Aidge refuse de planifier son Dequantizer.
+Un graphe mixte exige une inférence avant le plan mémoire, sinon Aidge refuse de planifier ses nœuds de
+déquantification : memory_report() l'exécute donc toujours une fois.
 """
 import numpy as np
 

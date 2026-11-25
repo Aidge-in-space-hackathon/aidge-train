@@ -28,7 +28,8 @@ THEME = gr.themes.Soft(primary_hue="indigo", neutral_hue="slate", font=FONT, fon
     button_primary_text_color="white",
 )
 
-## Feuille de style passée à launch(). Les couleurs viennent des variables du thème pour suivre le mode sombre.
+## Feuille de style passée à launch(). Les couleurs viennent des variables du thème pour suivre le mode sombre, sauf
+## celles de l'en-tête (.hero), sombre dans les deux modes.
 CSS = """
 .block.hero-block, .hero-block .html-container { padding: 0 !important; margin: 0 !important; }
 .hero {

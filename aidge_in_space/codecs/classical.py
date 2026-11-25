@@ -64,7 +64,7 @@ class Jpeg(PillowCodec):
     ## Identifiant, nom affiché et format Pillow.
     key, label, fmt = "jpeg", "JPEG", "JPEG"
     ## Description affichée.
-    description ="libjpeg, tables de Huffman optimisées, sous-échantillonnage 4:2:0 en couleur."
+    description = "libjpeg, tables de Huffman optimisées, sous-échantillonnage 4:2:0 en couleur."
 
     def levels(self, mode):
         """! @copydoc aidge_in_space.codecs.base.Codec.levels"""
@@ -81,8 +81,8 @@ class Jpeg2000(PillowCodec):
     ## Identifiant, nom affiché, format Pillow et fonctionnalité requise.
     key, label, fmt, feature = "jpeg2000", "JPEG 2000", "JPEG2000", "jpg_2000"
     ## Description affichée.
-    description =("OpenJPEG, ondelette 9/7 irréversible, une couche à débit cible. "
-                   "Proche de CCSDS 122, le standard spatial de compression d'image.")
+    description = ("OpenJPEG, ondelette 9/7 irréversible, une couche à débit cible. "
+                    "Proche de CCSDS 122, le standard spatial de compression d'image.")
 
     def levels(self, mode):
         """! @copydoc aidge_in_space.codecs.base.Codec.levels"""
@@ -100,7 +100,7 @@ class WebP(PillowCodec):
     ## Identifiant, nom affiché, format Pillow et fonctionnalité requise.
     key, label, fmt, feature = "webp", "WebP", "WEBP", "webp"
     ## Description affichée.
-    description ="libwebp avec pertes (prédiction intra de VP8), effort maximal (method=6)."
+    description = "libwebp avec pertes (prédiction intra de VP8), effort maximal (method=6)."
 
     def levels(self, mode):
         """! @copydoc aidge_in_space.codecs.base.Codec.levels"""

@@ -1,4 +1,4 @@
-"""! @brief Ballé 2017 entraîné par le notebook : un codec par architecture trouvée dans outputs/checkpoints.
+"""! @brief Ballé 2017 entraîné par le notebook ou la plateforme : codecs lus dans outputs/checkpoints.
 
 Chaque fichier bls2017_c{canaux}_N{N}_lambda{λ}.pt devient un niveau ; les fichiers de même
 architecture (canaux, N, GDN finale) sont regroupés dans un même codec, triés par λ croissant
@@ -16,7 +16,7 @@ from ..config import CKPT_DIR
 from ..nn import Balle2017
 from .base import LearnedCodec, Level
 
-## Motif des checkpoints écrits par le notebook.
+## Motif des checkpoints : ceux du notebook, et ceux de la plateforme (même nom suivi de @c _run{id}).
 PATTERN = "bls2017_c*_N*_lambda*.pt"
 
 

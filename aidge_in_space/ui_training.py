@@ -4,6 +4,9 @@ L'interface n'entraîne jamais elle-même : elle écrit des jobs dans la file (a
 et lit leurs statuts, leurs métriques et leurs journaux. Toute la logique est dans des fonctions pures,
 testables sans lancer Gradio ; les callbacks de build_tabs() n'en sont que de minces adaptateurs qui
 convertissent les erreurs en messages simples (gr.Error, gr.Warning). Contrat : docs/conception_entrainement.md, § 2.7.
+
+Les actions sur un job (cancel_job, requeue_job, job_action, job_choices, worker_banner) servent aussi à l'onglet
+5 (aidge_in_space.ui_optim) : elles tiennent compte du type du job (@c train ou @c optim).
 """
 import functools
 import http.client
@@ -682,7 +685,7 @@ def lmbda_text(v):
     return f"{v:g}"
 
 
-## Statuts d'un job non terminé : toujours visibles, quel que soit leur âge.
+## Statuts d'un job en attente, en cours ou relançable : toujours visibles, quel que soit leur âge.
 OPEN_STATUSES = ("queued", "running", "failed", "cancelled", "interrupted")
 ## Nombre de jobs récents toujours listés.
 RECENT_JOBS = 200
@@ -735,7 +738,12 @@ def job_choices(store, kind="train"):
 
 
 def log_tail(path, n_lines):
-    """! @brief Dernières lignes d'un journal ; « (journal vide) » s'il est absent ou vide."""
+    """! @brief Dernières lignes non vides d'un journal ; « (journal vide) » s'il est absent ou vide.
+
+    @param path     Fichier journal (seuls ses LOG_TAIL_BYTES derniers octets sont lus).
+    @param n_lines  Nombre de lignes à garder.
+    @return Texte des lignes, séparées par des sauts de ligne.
+    """
     try:
         with open(path, "rb") as f:
             f.seek(0, os.SEEK_END)
@@ -879,6 +887,8 @@ def requeue_job(store, job_id):
     """! @brief Remet en file un job en échec, annulé ou interrompu.
 
     Un entraînement reprend à son dernier checkpoint ; une optimisation Aidge recommence depuis le début.
+    @param store   JobStore.
+    @param job_id  Identifiant du job.
     @return Message de confirmation.
     @throws ValueError si le job n'est pas relançable.
     @throws KeyError si le job est inconnu.
@@ -912,6 +922,8 @@ def job_action(action, store, job_id, *args, missing="Sélectionnez d'abord un e
 def duplicate_config(store, job_id):
     """! @brief Valeurs du formulaire d'entraînement pour refaire un job avec les mêmes réglages.
 
+    @param store   JobStore.
+    @param job_id  Identifiant du job.
     @return Dictionnaire @c name (« nom (copie) »), @c author, @c dataset, @c mode, @c preset, @c lambdas,
             @c N, @c gdn_last, @c steps, @c batch_size, @c lr, @c crop, @c n_patches, @c seed.
     @throws KeyError si le job est inconnu.

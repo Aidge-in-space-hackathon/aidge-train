@@ -85,6 +85,9 @@ def run(backend=None, public_only=False, if_stale=False, fetch=True, log=print):
     @param fetch        Faux : aucun téléchargement (sources déjà en cache).
     @param log          Fonction d'affichage.
     @return Manifeste de l'index en service.
+    @throws rag.sources.SourceError si une source est refusée (téléchargement, SHA-256).
+    @throws RuntimeError s'il n'y a aucun passage ou aucun backend d'embeddings disponible.
+    @throws rag.embeddings.QuotaExceeded, rag.embeddings.EmbeddingError si Voyage échoue hors du mode « auto ».
     """
     backend = backend or config.embeddings_backend()
     backends = wanted_backends(backend)

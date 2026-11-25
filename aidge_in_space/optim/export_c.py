@@ -101,7 +101,7 @@ class LocodExport:
     pl_weights_bytes: int
     ## Octets échangés entre PS et PL par tuile.
     transfers_per_tile_bytes: int
-    ## Noms des couches écrites par le banc natif, dans l'ordre : (nom, type C, dimensions).
+    ## Couches écrites par la compilation native, dans l'ordre : (nom, @c "int8" ou @c "float32", dimensions).
     layers: list = field(default_factory=list)
 
 
@@ -164,10 +164,10 @@ def _producer(node, input_index):
 
 
 def _quantizer_params(node):
-    """! @brief Échelle, décalage et bornes d'un nœud Quantizer.
+    """! @brief Échelle et bornes d'un nœud Quantizer ; son décalage doit être nul.
 
     @param node  Nœud Quantizer.
-    @return Triplet (échelle, bornes (min, max)).
+    @return Couple (échelle, bornes (min, max)) ; le décalage n'est que vérifié.
     @throws ExportCError si le décalage n'est pas nul.
     """
     scale = float(aidge_quantization.get_scaling_factor(node))
@@ -228,7 +228,13 @@ class _Translator:
         self.pending_conv = None
 
     def source(self, node, index=0):
-        """! @brief Tampon alimentant une entrée d'un nœud (le tampon du modèle si l'entrée est libre)."""
+        """! @brief Tampon alimentant une entrée d'un nœud (le tampon du modèle si l'entrée est libre).
+
+        @param node   Nœud.
+        @param index  Indice de l'entrée.
+        @return Buffer.
+        @throws ExportCError si le parent n'a pas encore été traduit.
+        """
         parents = node.get_parents()
         parent = parents[index] if index < len(parents) else None
         if parent is None:
@@ -242,7 +248,14 @@ class _Translator:
         return self.buffers[parent.name()]
 
     def emit_cpu(self, node, code, ctype="float", data=""):
-        """! @brief Ajoute une opération CPU produisant la sortie du nœud."""
+        """! @brief Ajoute une opération CPU produisant la sortie du nœud.
+
+        @param node   Nœud traduit.
+        @param code   Corps C, où @c OUT désigne le tampon de sortie.
+        @param ctype  Type C des éléments de la sortie.
+        @param data   Déclarations statiques (poids), ou chaîne vide.
+        @return Buffer de sortie.
+        """
         out = Buffer("buf_" + _symbol(node.name()), _dims(node), ctype)
         self.buffers[node.name()] = out
         self.layers.append(CpuOp(out, code.replace("OUT", out.name), data))

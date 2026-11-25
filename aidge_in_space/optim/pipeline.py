@@ -112,7 +112,10 @@ def _prepare(cfg):
 
 
 def _versions():
-    """! @brief Versions d'Aidge utilisées."""
+    """! @brief Versions d'Aidge utilisées, recopiées dans report.json.
+
+    @return Dictionnaire @c core, @c quantization, @c export_cpp : version installée, ou None.
+    """
     import importlib.metadata as md
     out = {}
     for key, package in (("core", "aidge-core"), ("quantization", "aidge-quantization"), ("export_cpp", "aidge-export-cpp")):
@@ -128,7 +131,8 @@ def analyze(cfg):
 
     Les poids de la recette mixte sont estimés (convolutions sur 1 octet par poids et 4 par biais, GDN inchangée).
     @param cfg  OptimConfig.
-    @return Dictionnaire sérialisable en JSON : @c source, @c tile, @c nodes, @c quantizability, @c memory_fp32, @c memory_mixte.
+    @return Dictionnaire sérialisable en JSON : @c source, @c tile, @c nodes, @c quantizability, @c check_architecture
+            (verdict de aidge_quantization.check_architecture), @c memory_fp32, @c memory_mixte.
     @throws ConfigError si le checkpoint ou la tuile ne convient pas.
     """
     aidge_core.Log.set_console_level(aidge_core.Level.Fatal)
@@ -154,7 +158,13 @@ def analyze(cfg):
 
 
 def _skip(progress, cfg):
-    """! @brief Avance le compteur des étapes qu'une recette sans graphe ne fera pas."""
+    """! @brief Avance le compteur des étapes qu'une recette sans graphe ne fera pas.
+
+    Saute fidélité et débit-distorsion, plus export, compilation et vérification si l'export est demandé :
+    la progression reste alignée sur optim.config.n_steps().
+    @param progress  _Progress.
+    @param cfg       OptimConfig.
+    """
     progress.step += 2 + (3 if cfg.export.generate else 0)
 
 

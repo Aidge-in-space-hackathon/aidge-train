@@ -1,7 +1,9 @@
-"""! @brief File d'attente SQLite des entraînements (JobStore) : jobs, métriques et battements de cœur des workers.
+"""! @brief File d'attente SQLite (JobStore) : jobs, métriques et battements de cœur des workers.
 
+Un job est un entraînement (@c kind = @c train) ou une optimisation Aidge (@c kind = @c optim).
 Bibliothèque standard uniquement. Trois acteurs se partagent la base : l'interface (soumission, annulation,
-relance), le worker (prise des jobs, statut final) et le processus d'entraînement (progression, métriques).
+relance), le worker (prise des jobs, statut final) et le processus du job, aidge_in_space.train ou
+aidge_in_space.optimize (progression, métriques).
 
 Choix du journal `DELETE` (et non WAL) : la base peut vivre sur un dossier monté depuis Windows dans un
 conteneur Docker, où la mémoire partagée exigée par le mode WAL et les verrous de fichiers ne sont pas
@@ -23,7 +25,7 @@ from pathlib import Path
 
 from . import config
 
-## Codes de retour de python -m aidge_in_space.train.
+## Codes de retour de python -m aidge_in_space.train (repris par aidge_in_space.optimize).
 EXIT_DONE, EXIT_FAILED, EXIT_CONFIG, EXIT_CANCELLED, EXIT_STOPPED = 0, 1, 2, 3, 4
 ## Statuts internes (ASCII).
 STATUSES = ("queued", "running", "done", "failed", "cancelled", "interrupted")
@@ -45,7 +47,7 @@ JOB_KINDS = ("train", "optim")
 BUSY_TIMEOUT_S = 30
 ## Longueur maximale (caractères) du message d'erreur d'un job.
 MAX_ERROR_CHARS = 4000
-## Types de métriques acceptés.
+## Types de métriques acceptés (une optimisation consigne ses étapes en @c eval, avec une clé @c stage).
 METRIC_KINDS = ("train", "eval")
 
 ## Migration de la version 1 vers la version 2 : les jobs existants deviennent des entraînements.
@@ -100,7 +102,7 @@ CREATE TABLE IF NOT EXISTS workers (
 
 @dataclass
 class Job:
-    """! @brief Un job d'entraînement tel que stocké dans la base."""
+    """! @brief Un job (entraînement ou optimisation) tel que stocké dans la base."""
     ## Identifiant (jamais réutilisé ; le checkpoint du job le porte).
     id: int
     ## Statut interne, parmi STATUSES.
@@ -109,15 +111,15 @@ class Job:
     name: str
     ## Auteur (peut être vide).
     author: str
-    ## TrainConfig.to_dict(), relu depuis config_json.
+    ## TrainConfig.to_dict() ou OptimConfig.to_job(), relu depuis config_json.
     config: dict
-    ## Nombre de canaux (1 = gris, 3 = RGB).
+    ## Nombre de canaux (1 = gris, 3 = RGB) ; pour une optimisation, ceux du checkpoint source.
     in_ch: int
-    ## Largeur N du modèle.
+    ## Largeur N du modèle (du checkpoint source pour une optimisation).
     N: int
-    ## Compromis débit-distorsion λ.
+    ## Compromis débit-distorsion λ (du checkpoint source pour une optimisation).
     lmbda: float
-    ## Nombre de pas visé.
+    ## Nombre de pas visé ; pour une optimisation, nombre d'étapes du pipeline (optim.config.n_steps()).
     steps: int
     ## Dernier pas consigné (écrit par log_metrics et reset_progress).
     last_step: int
@@ -127,7 +129,7 @@ class Job:
     attempts: int
     ## Nom du worker qui exécute ou a exécuté le job.
     worker: str | None
-    ## Chemin du checkpoint.
+    ## Chemin du checkpoint écrit par un entraînement (None pour une optimisation).
     ckpt_path: str | None
     ## Message d'erreur (échec ou interruption).
     error: str | None
@@ -186,7 +188,7 @@ def _max_run_id(ckpt_dir: Path) -> int:
 
 
 class JobStore:
-    """! @brief Accès à la base des jobs d'entraînement (une connexion par opération)."""
+    """! @brief Accès à la base des jobs (une connexion par opération)."""
 
     def __init__(self, db_path: str | Path | None = None):
         """! @brief Ouvre (et crée si besoin) la base.
@@ -240,7 +242,10 @@ class JobStore:
             con.close()
 
     def _init_schema(self) -> None:
-        """! @brief Crée le schéma si la base est neuve et amorce l'AUTOINCREMENT sur les checkpoints existants.
+        """! @brief Crée le schéma si la base est neuve, ou migre une base de version 1 vers SCHEMA_VERSION.
+
+        Une base neuve amorce l'AUTOINCREMENT sur les checkpoints @c _run{N} existants, pour qu'un nouveau
+        job n'écrase jamais le checkpoint d'un ancien. La migration ajoute la colonne @c kind.
         @throws RuntimeError Si user_version dépasse SCHEMA_VERSION.
         """
         con = self._connect()
@@ -514,7 +519,9 @@ class JobStore:
                 (status, time.time(), None if error is None else error[:MAX_ERROR_CHARS], job_id))
 
     def requeue(self, job_id: int) -> None:
-        """! @brief Remet en file un job en échec, annulé ou interrompu (même id : reprise du checkpoint).
+        """! @brief Remet en file un job en échec, annulé ou interrompu, sous le même id.
+
+        Un entraînement reprend alors de son checkpoint ; une optimisation repart de zéro.
         @param job_id Identifiant du job.
         @throws ValueError Si le job est en attente, en cours ou terminé.
         @throws KeyError Si le job est inconnu.

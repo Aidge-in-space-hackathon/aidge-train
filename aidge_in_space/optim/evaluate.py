@@ -49,7 +49,8 @@ def rd_image(model, encode, img, mode, tile):
     @param img     Image uint8.
     @param mode    @c "gris" ou @c "rgb".
     @param tile    Taille de tuile (C, H, W).
-    @return Dictionnaire @c bpp, @c psnr, @c ms_ssim.
+    @return Dictionnaire @c bpp (flux réel, en-tête compris), @c psnr et @c ms_ssim, ce dernier en dB
+            (metrics.ms_ssim_db) et NaN si l'image est plus petite que metrics.MS_SSIM_MIN_SIDE.
     """
     from ..coding import FactorizedCoding
     coding = FactorizedCoding()
@@ -76,7 +77,8 @@ def rd_average(model, encode, paths, mode, tile, should_stop=None):
     @param mode         @c "gris" ou @c "rgb".
     @param tile         Taille de tuile.
     @param should_stop  Fonction appelée avant chaque image ; une valeur vraie interrompt le calcul.
-    @return Dictionnaire de la clé @c rd de report.json (@c rate_kind vaut @c "réel"), ou None si interrompu.
+    @return Dictionnaire de la clé @c rd de report.json (@c rate_kind vaut @c "réel", @c ms_ssim en dB ou None),
+            ou None si interrompu. Les écarts @c delta_* restent à None : voir add_deltas().
     """
     rows = []
     for path in paths:

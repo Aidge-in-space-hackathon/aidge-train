@@ -10,7 +10,7 @@ DATA_DIR = ROOT / "data"
 KODAK_DIR = DATA_DIR / "kodak"
 ## Résultats (ignorés par git).
 OUT_DIR = ROOT / "outputs"
-## Modèles entraînés par le notebook.
+## Checkpoints Ballé 2017 lus par le banc : ceux du notebook et ceux de la plateforme d'entraînement.
 CKPT_DIR = OUT_DIR / "checkpoints"
 ## Poids pré-entraînés téléchargés.
 WEIGHTS_DIR = OUT_DIR / "weights"

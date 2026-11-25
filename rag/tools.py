@@ -44,6 +44,7 @@ class ToolRegistry:
 
     def __init__(self):
         """! @brief Registre vide."""
+        ## Outils par nom, dans l'ordre d'enregistrement.
         self._tools = {}
 
     def register(self, tool):
@@ -151,7 +152,9 @@ def search_docs(query, k=None):
 
     @param query  Requête.
     @param k      Nombre de passages (1 à 8) ; None : config.TOP_K.
-    @return dict {"passages": [...], "methode": [...]} ; {"passages": [], "remarque": ...} si rien n'est trouvé.
+    @return dict {"passages": [...], "methode": [...]}, plus "remarque" si rien n'est trouvé ;
+            {"erreur": ...} si la requête est vide.
+    @throws rag.retrieval.IndexMissing s'il n'y a pas d'index (rendu au LLM en {"erreur": ...} par ToolRegistry.call).
     """
     from rag.retrieval import get_retriever
     query = str(query).strip()

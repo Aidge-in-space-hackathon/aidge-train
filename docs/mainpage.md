@@ -24,18 +24,22 @@ Le contexte du projet et l'installation sont décrits dans le README du dépôt.
 | `aidge_in_space.codecs` | Registre des codecs : tout module du dossier qui définit `codecs()` est découvert automatiquement |
 | `aidge_in_space.codecs.base` | `Codec`, `Level`, `Result` et `LearnedCodec` (padding, moteur de l'encodeur, débit réel ou estimé, décodage) |
 | `aidge_in_space.codecs.classical` | JPEG, JPEG 2000 et WebP via Pillow |
-| `aidge_in_space.codecs.balle2017` | Modèles Ballé 2017 entraînés par le notebook (`outputs/checkpoints`) |
+| `aidge_in_space.codecs.balle2017` | Modèles Ballé 2017 entraînés par le notebook ou la plateforme (`outputs/checkpoints`), une série par run |
 | `aidge_in_space.codecs.bmshj2018` | Ballé 2018 factorisé et hyperprior, poids pré-entraînés de CompressAI |
 | `aidge_in_space.codecs.aidge_variants` | Variantes optimisées par Aidge : encodeur Aidge par tuiles, décodeur du checkpoint source (`outputs/optim`) |
 | `aidge_in_space.coding` | Codage entropique des latents, une classe par modèle d'entropie (`LatentCoding`) |
 | `aidge_in_space.entropy` | Codeur arithmétique et tables de fréquences (noyaux numba au flux identique, repli en Python pur sans numba) |
 | `aidge_in_space.nn` | Architectures, GDN, modèles d'entropie |
-| `aidge_in_space.backends` | Exécution de l'encodeur sur PyTorch, ONNX Runtime ou Aidge |
+| `aidge_in_space.backends` | Exécution de l'encodeur sur PyTorch, ONNX Runtime ou Aidge ; export ONNX de l'encodeur d'un checkpoint |
+| `aidge_in_space.config` | Chemins du projet (`data/`, `outputs/`, `RUNS_DIR`) et capacité BRAM retenue |
+| `aidge_in_space.images` | Jeux d'images du banc, conversions entre tableaux uint8 et tenseurs |
 | `aidge_in_space.profiling` | Calcul, paramètres et mémoire de la partie embarquée, couche par couche |
 | `aidge_in_space.metrics` | PSNR, MS-SSIM, BD-rate |
 | `aidge_in_space.bench` | Campagnes de mesures (CSV dans `outputs/bench`), agrégation, figures |
-| `aidge_in_space.app` | Interface Gradio |
-| `aidge_in_space.ui_training` | Onglets 1. Entraîner et 2. Suivre : fonctions pures (jeux d'images, jobs, courbes) et adaptateurs Gradio |
+| `aidge_in_space.app` | Interface Gradio : assemble les onglets, porte les onglets 3. Tester et 4. Valider |
+| `aidge_in_space.ui_style` | Thème, feuille de style et blocs de présentation communs aux onglets |
+| `aidge_in_space.ui_training` | Onglets 1. Entraîner et 2. Suivre : fonctions pures (jeux d'images, jobs, courbes, export ONNX) et adaptateurs Gradio |
+| `aidge_in_space.ui_assistant` | Bulle de l'assistant RAG, flottante sur tous les onglets (le paquet `rag/`, hors de cette documentation) |
 | `aidge_in_space.dataset_catalog` | Catalogue des jeux d'images téléchargeables : adresses, empreintes, licences |
 | `aidge_in_space.jobs` | `JobStore`, la file d'attente SQLite : jobs, métriques, battements de cœur des workers, statuts |
 | `aidge_in_space.worker` | Prend les jobs un par un et lance chacun dans un sous-processus `train` ou `optimize` |
