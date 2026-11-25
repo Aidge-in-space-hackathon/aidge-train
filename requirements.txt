@@ -33,6 +33,9 @@ aidge-quantization==0.10.1; platform_machine in "x86_64 AMD64" and sys_platform 
 
 # Banc d'essai (python -m aidge_in_space.app) et ses tests
 gradio>=6.31.0
+# Serveur MCP de l'interface (AIDGE_UI_MCP=1, aidge_in_space/ui_mcp.py). Pas l'extra gradio[mcp] : il plafonne
+# pydantic à 2.12.5, alors que kubernetes (dépendance de chromadb) exige pydantic>=2.14.2
+mcp>=1.21,<2
 pytest>=9.2.0
 
 # Assistant RAG (bulle de chat) : liste dans rag/requirements.txt (le Dockerfile la copie à côté de celle-ci)

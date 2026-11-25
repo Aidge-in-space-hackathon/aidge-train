@@ -257,3 +257,4 @@ Si le problème persiste, notez le numéro du job et le message d'erreur et tran
 - **Où sont les fichiers ?** Les modèles entraînés sont dans `outputs/checkpoints/`, avec le numéro du job dans le nom (`..._run12.pt`). Les journaux et la file d'attente sont dans `outputs/runs/`. Les variantes Aidge et leur code sont dans `outputs/optim/`. Ces dossiers ne sont pas versionnés.
 - **Ne supprimez pas** `outputs/runs/runs.sqlite` : c'est la mémoire de la file d'attente.
 - Les jeux d'images sont dans `data/train/`, un sous-dossier par jeu.
+- **Piloter la plateforme depuis un agent IA** (Claude Code, Claude Desktop) : tester un modèle, lancer une campagne ou une optimisation Aidge se font aussi par MCP, sur votre PC. Lancez l'interface avec `AIDGE_UI_MCP=1`, puis branchez l'agent sur `http://127.0.0.1:7860/gradio_api/mcp/`. Marche à suivre : section « Accès MCP pour les agents » du [README](../README.md#accès-mcp-pour-les-agents).

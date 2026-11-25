@@ -726,9 +726,7 @@ def test_app_build_enregistre_load_et_select(store, tmp_path, monkeypatch, codec
     monkeypatch.setattr(config, "TRAIN_DIR", tmp_path / "train_vide")
     from aidge_in_space import app
     demo = app.build()
-    api = demo.get_api_info()
-    assert "/on_load" in api["named_endpoints"] and "/on_train_tab" in api["named_endpoints"]
-    assert _fonction(demo, "on_load") is not None
+    assert _fonction(demo, "on_load") is not None and _fonction(demo, "on_train_tab") is not None
 
 
 def test_app_codec_menus_meme_forme_que_reload_codecs(store, tmp_path, monkeypatch):

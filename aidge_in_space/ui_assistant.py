@@ -66,19 +66,29 @@ def in_docker():
     return Path("/.dockerenv").exists()
 
 
-def status(host=None, docker=None):
-    """! @brief L'assistant peut-il être activé ?
+def exposed_locally_only(host=None, docker=None):
+    """! @brief L'interface n'est-elle joignable que depuis cette machine ?
 
     Dans Docker, l'exposition dépend de l'adresse de l'hôte qui publie le port (AIDGE_UI_BIND), pas de l'adresse
     d'écoute du conteneur (0.0.0.0).
     @param host    Adresse d'écoute de l'interface ; None : AIDGE_UI_HOST, sinon 127.0.0.1.
     @param docker  Force la détection de Docker (tests) ; None : in_docker().
-    @return (activé, message à afficher si désactivé).
+    @return bool.
     """
     docker = in_docker() if docker is None else docker
     exposed_on = (os.environ.get("AIDGE_UI_BIND") or "127.0.0.1") if docker \
         else (host or os.environ.get("AIDGE_UI_HOST") or "127.0.0.1")
-    if not _is_loopback(exposed_on) and os.environ.get("AIDGE_ASSISTANT_TRUSTED_AUTH") != "1":
+    return _is_loopback(exposed_on)
+
+
+def status(host=None, docker=None):
+    """! @brief L'assistant peut-il être activé ?
+
+    @param host    Adresse d'écoute de l'interface ; None : AIDGE_UI_HOST, sinon 127.0.0.1.
+    @param docker  Force la détection de Docker (tests) ; None : in_docker().
+    @return (activé, message à afficher si désactivé).
+    """
+    if not exposed_locally_only(host, docker) and os.environ.get("AIDGE_ASSISTANT_TRUSTED_AUTH") != "1":
         return False, ("Assistant désactivé : l'interface est exposée sur le réseau sans authentification devant. "
                        "Il consomme des quotas d'API : placez une authentification devant, puis définissez "
                        "AIDGE_ASSISTANT_TRUSTED_AUTH=1.")

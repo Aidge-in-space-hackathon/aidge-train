@@ -241,10 +241,11 @@ Les variables de l'assistant sont dans la section [Assistant RAG](#assistant-rag
 
 ## Accès MCP pour les agents
 
-Un agent IA (Claude Code, Claude Desktop, ou tout client [MCP](https://modelcontextprotocol.io)) peut piloter la plateforme par sept outils, qui sont les actions principales de l'interface :
+Un agent IA (Claude Code, Claude Desktop, ou tout client [MCP](https://modelcontextprotocol.io)) peut piloter la plateforme par neuf outils, qui reprennent les actions principales de l'interface avec des paramètres simples (entiers, listes, valeurs par défaut) :
 
 | Outil | Action |
 | :- | :- |
+| `list_options` | valeurs permises des autres outils, lues à l'instant : modèles et niveaux, codecs, jeux d'images, campagnes, checkpoints |
 | `test_model` | tester un modèle sur une image, face aux codecs de référence (onglet 3) |
 | `benchmark` | lancer une campagne débit/distorsion sur un jeu d'images (onglet 4) |
 | `profile` | profil couche par couche de l'encodeur embarqué (onglet 4) |
@@ -252,8 +253,9 @@ Un agent IA (Claude Code, Claude Desktop, ou tout client [MCP](https://modelcont
 | `check_backends` | mêmes latents sur PyTorch, ONNX Runtime et Aidge ? (onglet 4) |
 | `analyze_optim` | analyser une optimisation Aidge sans rien lancer (onglet 5) |
 | `launch_optim` | mettre des optimisations Aidge dans la file (onglet 5) |
+| `list_optim_jobs` | suivre les optimisations lancées : statut, étape, progression |
 
-Les autres événements de l'interface (menus, rafraîchissements, chat) sont privés : ni l'API Gradio ni le MCP ne les exposent.
+Les résultats reviennent en JSON (tableaux de mesures, pas d'images). Les événements de l'interface elle-même (boutons, menus, rafraîchissements, chat) sont privés : ni l'API Gradio ni le MCP ne les exposent.
 
 **Activer le serveur** : définir `AIDGE_UI_MCP=1` avant de lancer l'interface (venv : `set AIDGE_UI_MCP=1` dans l'invite de commandes Windows, `$env:AIDGE_UI_MCP=1` dans PowerShell, `export AIDGE_UI_MCP=1` ailleurs, avant le lanceur ; Docker : dans `.env`). Au démarrage, l'interface affiche l'adresse du serveur, `http://127.0.0.1:7860/gradio_api/mcp/`. Les outils sont aussi décrits dans la page de l'interface : lien « Use via API » en bas, onglet MCP.
 
@@ -267,7 +269,7 @@ Un client qui ne parle que stdio passe par `npx mcp-remote http://127.0.0.1:7860
 
 **Garde-fou** : `launch_optim` met des jobs dans la file et le MCP n'a pas d'authentification propre. Le serveur est donc refusé (message au démarrage, l'interface démarre sans lui) quand l'interface est joignable depuis une autre machine (`AIDGE_UI_HOST` ou, sous Docker, `AIDGE_UI_BIND` non local), sauf si `AIDGE_UI_MCP_TRUSTED_AUTH=1`. Sur l'instance déployée, la page de connexion d'Authelia bloque les clients MCP : passer par un tunnel SSH vers le port 7860 du serveur, ou par une règle Authelia dédiée à `/gradio_api/mcp/` avec une authentification par en-tête.
 
-**Limite** : les valeurs permises des menus (modèles, jeux d'images, codecs) sont celles du démarrage de l'interface. Un modèle entraîné ensuite n'est proposé aux agents qu'après un redémarrage.
+**Limite** : `benchmark` et `check_backends` peuvent durer plusieurs minutes ; certains clients MCP abandonnent un appel avant la fin. Commencer par peu d'images et `real_rate` à faux.
 
 ## Assistant RAG
 

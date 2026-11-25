@@ -1,8 +1,8 @@
 """! @brief Interface Gradio de la plateforme : entraîner, suivre, tester, valider et optimiser un modèle.
 
-Lancement : @c python -m aidge_in_space.app puis http://127.0.0.1:7860. Chaque action est aussi
-exposée par l'API Gradio (api_name : test_model, benchmark, profile, compare_encoders,
-check_backends), utilisable avec gradio_client.
+Lancement : @c python -m aidge_in_space.app puis http://127.0.0.1:7860. Les actions principales sont aussi
+exposées, avec des paramètres simples, par l'API Gradio (gradio_client) et comme outils MCP avec AIDGE_UI_MCP=1 : voir
+ui_mcp.TOOLS. Les événements de l'interface elle-même sont privés.
 """
 import argparse
 import ipaddress
@@ -17,7 +17,7 @@ import pandas as pd
 from matplotlib.figure import Figure
 from PIL import Image
 
-from . import backends, bench, config, profiling, ui_assistant, ui_optim, ui_style, ui_training
+from . import backends, bench, config, profiling, ui_assistant, ui_mcp, ui_optim, ui_style, ui_training
 from .codecs import LearnedCodec, all_codecs, closest_level, discover, get
 from .images import MODE_LABELS, convert, datasets, download_kodak, load_image
 from .metrics import MS_SSIM_MIN_SIDE
@@ -610,6 +610,7 @@ def build(host=None):
     refs0, checked0 = reference_choices(model0)
 
     with gr.Blocks(title="AIDGE IN SPACE") as demo:
+        ui_mcp.mount()          # outils de l'API et du MCP, avant les onglets : ils gardent leur nom
         ui_style.header()
 
         with gr.Tabs() as tabs:
@@ -661,7 +662,7 @@ def build(host=None):
                                          column_widths=MEASURE_WIDTHS)
                 t_model.input(model_updates, t_model, [t_level, t_refs])
                 t_go.click(run_test, [dataset, image_name, upload, t_model, t_level, t_refs, t_backend, t_real, zx, zy],
-                           [gallery, zoom, table], api_name="test_model")
+                           [gallery, zoom, table])
 
             # ------------------------------------------------ Valider
             with gr.Tab("4. Valider", id="valider"):
@@ -709,7 +710,7 @@ def build(host=None):
                 b_dataset.change(lambda d: gr.update(**image_count_slider(len(image_choices(d)))), b_dataset, b_n)
                 show_outputs = [fig_psnr, fig_ssim, fig_time, bd, agg_table, ref, csv_file]
                 b_go.click(run_benchmark, [b_dataset, b_n, mode, b_keys, b_points, b_backend, b_real, b_name, ref,
-                                           metric], [b_status, runs] + show_outputs, api_name="benchmark")
+                                           metric], [b_status, runs] + show_outputs)
                 for comp in (runs, ref, metric):      # .input : seulement les actions de l'utilisateur
                     comp.input(show_runs, [runs, ref, metric], show_outputs)
 
@@ -730,9 +731,9 @@ def build(host=None):
                     p_table = gr.Dataframe(label="Couches", wrap=True)
                     p_check_table = gr.Dataframe(label="Moteurs : mêmes latents ? (entrée aléatoire, 1 thread)")
                 p_codec.input(lambda k: model_updates(k)[0], p_codec, p_level)
-                p_go.click(profile, [p_codec, p_level, p_size], [p_md, p_table, p_fig], api_name="profile")
-                p_all.click(compare_encoders, [p_size, mode], p_table, api_name="compare_encoders")
-                p_check.click(check_backends, [p_codec, p_level, p_size], p_check_table, api_name="check_backends")
+                p_go.click(profile, [p_codec, p_level, p_size], [p_md, p_table, p_fig])
+                p_all.click(compare_encoders, [p_size, mode], p_table)
+                p_check.click(check_backends, [p_codec, p_level, p_size], p_check_table)
 
             # ------------------------------------------------ Optimisation Aidge
             ui_optim.build_tab()
@@ -754,7 +755,8 @@ def build(host=None):
 
         # ------------------------------------------------ assistant RAG, flottant sur tous les onglets
         ui_assistant.mount(host)
-    return demo
+    # API et MCP : seuls les outils de ui_mcp restent publics
+    return ui_mcp.restrict_api(demo)
 
 
 def main(argv=None):
@@ -762,7 +764,7 @@ def main(argv=None):
 
     @param argv  Arguments (--host, --port, --inbrowser) ; ceux de la ligne de commande si None.
 
-    Variables d'environnement : AIDGE_UI_HOST, AIDGE_MAX_UPLOAD_MB.
+    Variables d'environnement : AIDGE_UI_HOST, AIDGE_MAX_UPLOAD_MB, AIDGE_UI_MCP (voir ui_mcp.status()).
     Authentification retirée temporairement : parse_users() et check_exposure() ne sont plus appelées.
     @throws SystemExit (code 2) si la taille maximale d'envoi est invalide.
     """
@@ -779,11 +781,16 @@ def main(argv=None):
     except ValueError as e:
         print(e, file=sys.stderr)
         raise SystemExit(2) from None
+    mcp_on, mcp_message = ui_mcp.status(host)
+    if mcp_message:
+        print(mcp_message, file=sys.stderr)
     download_kodak()
     discover()
+    # mcp_server explicite : GRADIO_MCP_SERVER ne peut pas contourner le garde-fou de ui_mcp.status()
     build(host).queue().launch(server_name=host, server_port=args.port, inbrowser=args.inbrowser,
                                max_file_size=f"{upload_mb}mb", theme=ui_style.THEME,
-                               css=ui_style.CSS + ui_assistant.CSS, allowed_paths=[str(config.CKPT_DIR)])
+                               css=ui_style.CSS + ui_assistant.CSS, allowed_paths=[str(config.CKPT_DIR)],
+                               mcp_server=mcp_on)
 
 
 if __name__ == "__main__":

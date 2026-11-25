@@ -850,10 +850,9 @@ def build_tab(store=None):
 
         report_outputs = [o_results_hint, o_alerts, o_table, o_bd, o_bd_hint, o_points, o_full, o_files, o_files_hint]
         detail_outputs = [o_summary, o_log, o_job_table]
-        o_analyze.click(on_analyze, [o_sources, o_tile, o_recipes, o_clip, o_channel, o_ncal, o_calib, o_nimg], o_report,
-                        api_name="analyze_optim")
+        o_analyze.click(on_analyze, [o_sources, o_tile, o_recipes, o_clip, o_channel, o_ncal, o_calib, o_nimg], o_report)
         o_go.click(on_go, [o_name, o_author, o_sources, o_recipes, o_tile, o_calib, o_clip, o_channel, o_ncal, o_nimg, o_export,
-                           o_compile, o_ind, o_ind_reason], [o_status, o_jobs, o_pick], api_name="launch_optim")
+                           o_compile, o_ind, o_ind_reason], [o_status, o_jobs, o_pick])
         o_refresh.click(refresh, None, [banner, o_jobs] + report_outputs)
         menus = [o_sources, o_calib]
         menu_outputs = [o_sources, o_sources_hint, o_calib, o_calib_hint]

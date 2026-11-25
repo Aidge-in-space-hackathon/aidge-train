@@ -37,6 +37,10 @@ services:
       AIDGE_UI_BIND: ${AIDGE_UI_BIND:-127.0.0.1}
       AIDGE_UI_USERS: ${AIDGE_UI_USERS:-}
       AIDGE_MAX_UPLOAD_MB: ${AIDGE_MAX_UPLOAD_MB:-500}
+      # Serveur MCP : AIDGE_UI_MCP=1 dans .env, et AIDGE_UI_MCP_TRUSTED_AUTH=1 seulement si une authentification
+      # que les clients MCP savent traverser protège /gradio_api/mcp/ (sinon il est refusé : l'interface est exposée)
+      AIDGE_UI_MCP: ${AIDGE_UI_MCP:-}
+      AIDGE_UI_MCP_TRUSTED_AUTH: ${AIDGE_UI_MCP_TRUSTED_AUTH:-}
       # Assistant RAG : actif seulement avec AIDGE_ASSISTANT_TRUSTED_AUTH=1 dans .env (l'interface est exposée,
       # Authelia la protège) et LITELLM_MASTER_KEY dans secrets.env
       LITELLM_BASE_URL: http://litellm:4000

@@ -25,6 +25,10 @@ services:
       AIDGE_UI_BIND: ${AIDGE_UI_BIND:-127.0.0.1}
       AIDGE_UI_USERS: ${AIDGE_UI_USERS:-}
       AIDGE_MAX_UPLOAD_MB: ${AIDGE_MAX_UPLOAD_MB:-500}
+      # Serveur MCP (http://localhost:7860/gradio_api/mcp/) : AIDGE_UI_MCP=1 ; refusé si AIDGE_UI_BIND n'est pas
+      # local, sauf avec AIDGE_UI_MCP_TRUSTED_AUTH=1 (une authentification protège l'accès)
+      AIDGE_UI_MCP: ${AIDGE_UI_MCP:-}
+      AIDGE_UI_MCP_TRUSTED_AUTH: ${AIDGE_UI_MCP_TRUSTED_AUTH:-}
       # Assistant RAG (bulle de chat) : proxy LiteLLM du réseau compose, jamais publié sur l'hôte
       LITELLM_BASE_URL: http://litellm:4000
       LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
