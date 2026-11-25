@@ -242,7 +242,18 @@ def analysis_config(checkpoints, tile_side, recipes, clipping, per_channel, n_ca
                     sources=None):
     """! @brief Configuration de l'analyse : le premier checkpoint coché, sans nom ni jeu obligatoires.
 
-    @param sources  Résultat de list_sources() ; None : lu à l'appel.
+    L'analyse ne lit que le checkpoint et la tuile ; les réglages de quantification et d'évaluation sont seulement
+    validés, comme pour un lancement.
+    @param checkpoints      Chemins des checkpoints cochés (valeurs de list_sources()) ; seul le premier est analysé.
+    @param tile_side        Côté de la tuile carrée, en pixels : multiple de 16 entre 16 et 1024 (menu : 32, 64, 128
+                            ou 256) ; ses canaux sont ceux du checkpoint.
+    @param recipes          Recettes cochées parmi fp32, int8, mixte ; vide : la recette par défaut (mixte).
+    @param clipping         Écrêtage de la calibration : MAX, MSE ou KL.
+    @param per_channel      Vrai : poids quantifiés par canal (une échelle par filtre au lieu d'une par couche).
+    @param n_calibration    Nombre de tuiles de calibration, entier de 1 à 512.
+    @param calibration_set  Jeu de calibration (sous-dossier de data/train) ; vide accepté, car l'analyse ne calibre pas.
+    @param n_images         Nombre d'images Kodak évaluées, entier de 1 à 24.
+    @param sources          Résultat de list_sources() ; None : lu à l'appel.
     @return OptimConfig.
     @throws ValueError si rien n'est coché ou si un champ est invalide.
     """
@@ -255,9 +266,25 @@ def launch_jobs(store, name, author, checkpoints, tile_side, recipes, clipping, 
                 n_images, export, compile_export, indicative=False, indicative_reason="", sources=None):
     """! @brief Dépose un job par checkpoint coché : toutes les configurations sont validées avant la première soumission.
 
-    @param store        JobStore.
-    @param checkpoints  Chemins cochés.
-    @param sources      Résultat de list_sources() ; None : lu à l'appel.
+    @param store              JobStore.
+    @param name               Nom de la série, obligatoire, 60 caractères au plus : regroupe les λ en une courbe.
+    @param author             Auteur, facultatif (None ou vide accepté), 60 caractères au plus.
+    @param checkpoints        Chemins cochés (valeurs de list_sources()) : un job par checkpoint.
+    @param tile_side          Côté de la tuile carrée, en pixels : multiple de 16 entre 16 et 1024 (menu : 32, 64, 128
+                              ou 256) ; ses canaux sont ceux de chaque checkpoint.
+    @param recipes            Recettes cochées parmi fp32, int8, mixte, au moins une ; fp32 est toujours ajoutée, car
+                              elle sert de référence.
+    @param clipping           Écrêtage de la calibration : MAX, MSE ou KL.
+    @param per_channel        Vrai : poids quantifiés par canal (une échelle par filtre au lieu d'une par couche).
+    @param n_calibration      Nombre de tuiles de calibration, entier de 1 à 512.
+    @param calibration_set    Jeu de calibration, obligatoire : nom d'un sous-dossier de data/train.
+    @param n_images           Nombre d'images Kodak évaluées, entier de 1 à 24.
+    @param export             Vrai : génère l'export C++ d'Aidge et, pour la recette mixte, le fichier C pour LoCod.
+    @param compile_export     Vrai : compile et vérifie les exports si g++ est disponible ; sans effet si @p export est
+                              faux.
+    @param indicative         Vrai : le BD-rate de la série est signalé comme indicatif (entraînements différents).
+    @param indicative_reason  Raison affichée pour une série indicative.
+    @param sources            Résultat de list_sources() ; None : lu à l'appel.
     @return Identifiants des jobs, dans l'ordre des λ.
     @throws ValueError si un champ est invalide, sans rien déposer.
     """
