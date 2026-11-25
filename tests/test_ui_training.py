@@ -483,7 +483,7 @@ def test_job_onnx_file(store, tmp_path):
     model = Balle2017(1, 16, True).eval()
     torch.save({"state_dict": model.state_dict(), "cfg": {"in_ch": 1, "N": 16, "gdn_last": True}}, ckpt)
     path = ui.job_onnx_file(store, jid)
-    assert path.endswith("modele_run1_encodeur.onnx") and str(store.job_dir(jid)) in path
+    assert Path(path) == tmp_path / "onnx" / "modele_run1_encodeur.onnx"    # à côté du checkpoint, servi
     # Taille libre : une autre taille que celle de l'export, même résultat que PyTorch.
     x = np.random.default_rng(0).random((1, 1, 48, 80), dtype=np.float32)
     sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
@@ -498,7 +498,7 @@ def test_job_onnx_file(store, tmp_path):
     os.utime(ckpt, (later, later))
     ui.job_onnx_file(store, jid)
     assert Path(path).stat().st_mtime_ns != mtime
-    assert not [p for p in store.job_dir(jid).iterdir() if p.name.endswith(".tmp")]
+    assert [p.name for p in (tmp_path / "onnx").iterdir()] == ["modele_run1_encodeur.onnx"]
 
 
 def test_worker_banner(store):

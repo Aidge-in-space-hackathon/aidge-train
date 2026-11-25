@@ -837,8 +837,10 @@ def job_model_file(store, job_id):
 def job_onnx_file(store, job_id):
     """! @brief Convertit en ONNX l'encodeur du checkpoint d'un job, pour le téléchargement.
 
-    Le fichier, `<nom du checkpoint>_encodeur.onnx`, est écrit dans le dossier du job et réutilisé
-    tant que le checkpoint n'a pas changé (aidge_in_space.backends.export_checkpoint_encoder).
+    Le fichier, `<nom du checkpoint>_encodeur.onnx`, est écrit dans le sous-dossier `onnx` du dossier du
+    checkpoint : Gradio ne sert que les fichiers de config.CKPT_DIR (allowed_paths de app.main), pas ceux
+    de RUNS_DIR (/runs en Docker). Il est réutilisé tant que le checkpoint n'a pas changé
+    (aidge_in_space.backends.export_checkpoint_encoder).
     @param store   JobStore.
     @param job_id  Identifiant du job, ou None.
     @return Chemin du fichier ONNX.
@@ -855,7 +857,7 @@ def job_onnx_file(store, job_id):
     if ckpt is None:
         raise ValueError("Pas encore de modèle à convertir : attendez le premier point de sauvegarde.")
     from . import backends                             # importe torch : seulement au premier clic
-    dest = store.job_dir(job.id) / f"{Path(ckpt).stem}_encodeur.onnx"
+    dest = Path(ckpt).parent / "onnx" / f"{Path(ckpt).stem}_encodeur.onnx"
     try:
         return str(backends.export_checkpoint_encoder(ckpt, dest))
     except Exception as e:
