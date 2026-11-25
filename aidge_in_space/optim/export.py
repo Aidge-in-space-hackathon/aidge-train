@@ -22,7 +22,7 @@ from .graph import tensor
 
 ## En dessous de ce taux de symboles identiques au graphe Aidge, la variante passe en échec.
 EXPORT_MIN_IDENTICAL_PCT = 99.0
-## Commande de compilation, sans les sources.
+## Options de g++ pour l'export, lancé depuis son dossier (sans le compilateur ni les sources).
 GXX_FLAGS = ["-O2", "-std=c++17", "-DSAVE_OUTPUTS", "-Idnn/include", "-I."]
 ## Dossier de vérification dans l'export : hors du zip.
 VERIF_DIR = "verif"

@@ -151,7 +151,7 @@ def _repo_files(patterns, root):
 def documents(include_private=True, fetch=True, catalog=None, root=None, client=None):
     """! @brief Liste les documents à ingérer, en téléchargeant au besoin les sources épinglées.
 
-    @param include_private  Faux : sources privées exclues (CI, artefact d'index publié).
+    @param include_private  Faux : sources privées exclues (CI, graine versionnée du dépôt public).
     @param fetch            Faux : ne télécharge rien, une source absente du cache lève SourceError.
     @param catalog          Fichier du catalogue ; None : rag/sources.yaml.
     @param root             Racine du dépôt ; None : celle du paquet.

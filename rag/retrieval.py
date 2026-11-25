@@ -82,9 +82,13 @@ class Retriever:
         """
         ## Dossier de l'index.
         self.root = Path(root or config.index_dir())
+        ## Client Voyage, créé à la demande par voyage().
         self._voyage = voyage
+        ## Embedder local, créé à la demande par local().
         self._local = local
+        ## Index chargé (store.Index), ou None avant le premier appel à index().
         self._index = None
+        ## Verrou du rechargement de l'index (plusieurs questions en parallèle).
         self._lock = threading.Lock()
 
     def index(self):

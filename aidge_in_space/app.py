@@ -1,8 +1,10 @@
 """! @brief Interface Gradio de la plateforme : entraîner, suivre, tester, valider et optimiser un modèle.
 
-Lancement : @c python -m aidge_in_space.app puis http://127.0.0.1:7860. Chaque action est aussi
-exposée par l'API Gradio (api_name : test_model, benchmark, profile, compare_encoders,
-check_backends), utilisable avec gradio_client.
+Lancement : @c python -m aidge_in_space.app puis http://127.0.0.1:7860. Les actions principales sont aussi
+exposées par l'API Gradio, utilisable avec gradio_client (api_name : test_model, benchmark, profile,
+compare_encoders, check_backends ici ; analyze_optim et launch_optim dans aidge_in_space.ui_optim).
+Les onglets 1, 2 et 5 viennent de aidge_in_space.ui_training et aidge_in_space.ui_optim ; la bulle de
+l'assistant, de aidge_in_space.ui_assistant.
 """
 import argparse
 import ipaddress
@@ -152,7 +154,7 @@ def image_choices(dataset):
 
 def codecs_markdown():
     """! @brief Tableau Markdown de tous les codecs enregistrés (section « Aide »)."""
-    lines =["| Codec | Famille | Modes | Description |", "| :- | :- | :- | :- |"]
+    lines = ["| Codec | Famille | Modes | Description |", "| :- | :- | :- | :- |"]
     for c in all_codecs():
         ok, why = c.available()
         desc = c.description + ("" if ok else f" **Indisponible : {why}**")
@@ -163,6 +165,10 @@ def codecs_markdown():
 def _image(dataset, name, upload, mode):
     """! @brief Image à traiter : l'image importée si elle existe, sinon celle choisie dans le jeu.
 
+    @param dataset  Jeu d'images.
+    @param name     Nom de fichier de l'image dans le jeu.
+    @param upload   Image importée (PIL), ou None.
+    @param mode     @c "gris" ou @c "rgb".
     @return Couple (image uint8, titre).
     @throws gr.Error si aucune image n'est choisie.
     """
@@ -339,7 +345,7 @@ def show_runs(names, ref, metric):
     @return Figures PSNR, MS-SSIM et temps, table des BD-rates, table des points, menu de référence
             mis à jour, et chemin du CSV si une seule campagne est affichée.
     """
-    df =bench.load_runs(names or [])
+    df = bench.load_runs(names or [])
     agg = bench.aggregate(df)
     curves = list(dict.fromkeys(agg["courbe"])) if not agg.empty else []
     if ref not in curves:
@@ -386,7 +392,7 @@ def profile(key, level_idx, preset):
 
 def _mac_figure(df):
     """! @brief Histogramme de la part des MAC par couche (convolutions en bleu, GDN en orange)."""
-    fig =Figure(figsize=(8, 3.5))
+    fig = Figure(figsize=(8, 3.5))
     ax = fig.subplots()
     colors = ["tab:blue" if t.startswith("Conv") else "tab:orange" for t in df["type"]]
     ax.bar(df["couche"], df["% MAC"], color=colors)
@@ -534,6 +540,8 @@ def is_loopback(host):
 def check_exposure(host, users, bind, in_docker):
     """! @brief Refuse d'exposer l'interface sur le réseau sans authentification.
 
+    N'est plus appelée par main() tant que l'authentification passe par le proxy (voir main()) ; gardée, avec
+    parse_users(), pour le jour où l'interface la gère de nouveau.
     @param host       Adresse d'écoute demandée.
     @param users      Comptes (parse_users()).
     @param bind       AIDGE_UI_BIND : adresse de l'hôte où Docker publie le port.
@@ -558,7 +566,7 @@ HELP = """
 - **BD-rate** : écart de débit moyen à qualité égale par rapport à la courbe de référence (Bjøntegaard).
   Négatif = économie de débit. Il faut au moins 4 points par courbe et une plage de qualité commune.
 - **Temps** : sur un thread de ce PC, donc indicatifs. L'**encodage** est ce qui tournerait à bord
-  (transformée d'analyse + codage entropique en Python pur), l'**analyse** la seule transformée
+  (transformée d'analyse + codage entropique, compilé par numba), l'**analyse** la seule transformée
   (exécutée par le moteur choisi). Le backend CPU d'Aidge est une implémentation de référence, lente sur PC.
 
 ### Ajouter un algorithme ou un modèle
@@ -584,7 +592,8 @@ Pour un réseau, hériter de `LearnedCodec` (voir `bmshj2018.py`) : il suffit de
 le chargement des poids ; padding, moteurs (PyTorch, ONNX Runtime, Aidge), codage entropique et profilage sont communs.
 Un nouveau modèle d'entropie s'ajoute en écrivant une sous-classe de `LatentCoding` (`aidge_in_space/coding.py`),
 affectée à l'attribut `coding` du codec.
-Les nouveaux modèles Ballé 2017 entraînés par le notebook (`outputs/checkpoints/bls2017_*.pt`) sont détectés seuls.
+Les nouveaux modèles Ballé 2017 (`outputs/checkpoints/bls2017_*.pt`, du notebook ou de l'onglet Entraîner) et les
+variantes de l'onglet Optimisation Aidge sont détectés seuls.
 
 ### Ligne de commande (machine d'entraînement, sans interface)
 ```

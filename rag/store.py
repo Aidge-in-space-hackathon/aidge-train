@@ -168,6 +168,7 @@ class Index:
         self.by_id = {c.chunk_id: c for c in self.chunks}
         ## Index BM25 (texte, document et section).
         self.bm25 = BM25Okapi([tokenize(c.embed_text()) for c in self.chunks]) if self.chunks else None
+        ## Client Chroma, ouvert à la première recherche vectorielle.
         self._chroma = None
 
     def backends(self):

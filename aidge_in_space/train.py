@@ -209,8 +209,8 @@ def run(args) -> int:
     """! @brief Exécute l'entraînement demandé par les arguments.
 
     @param args  Arguments analysés par build_parser().
-    @return Code de retour (EXIT_DONE, EXIT_CONFIG, EXIT_CANCELLED ou EXIT_STOPPED ; les autres erreurs
-            sont traitées par main()).
+    @return Code de retour : EXIT_DONE, EXIT_CANCELLED ou EXIT_STOPPED. Les erreurs remontent en
+            exceptions, que main() traduit en EXIT_CONFIG ou EXIT_FAILED.
     @throws ConfigError si la configuration, le job ou les données sont invalides.
     """
     store = job = None

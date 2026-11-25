@@ -64,7 +64,7 @@ class Codec:
     label = ""
     ## @c "Classique" ou @c "Appris" ; les codecs classiques sont listés en premier.
     family = ""
-    ## Description courte affichée dans l'section « Aide ».
+    ## Description courte affichée dans la section « Aide ».
     description = ""
     ## Modes d'image acceptés : @c "gris" et/ou @c "rgb".
     modes = ("gris", "rgb")

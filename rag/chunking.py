@@ -97,7 +97,8 @@ def estimate_tokens(text):
 
 
 def _clean(text):
-    """! @brief Normalise un texte extrait : Unicode NFC, ligatures, espaces de fin, lignes vides multiples.
+    """! @brief Normalise un texte extrait : Unicode NFKC (ligatures comprises), fins de ligne, espaces de fin,
+    césures de fin de ligne (PDF), lignes vides multiples.
 
     @param text  Texte brut.
     @return Texte nettoyé.
@@ -330,7 +331,8 @@ def chunk_blocks(blocks, source, source_id, visibility="public", size=None, over
     @param visibility  "public" ou "private".
     @param size        Taille visée (tokens) ; None : config.CHUNK_TOKENS.
     @param overlap     Chevauchement (tokens) ; None : config.CHUNK_OVERLAP.
-    @return Liste de Chunk.
+    @return Liste de Chunk, sans les débris de moins de MIN_TOKENS (voir _make_chunk()).
+    @throws ValueError si @p overlap n'est pas plus petit que @p size.
     """
     size = size or config.CHUNK_TOKENS
     overlap = config.CHUNK_OVERLAP if overlap is None else overlap

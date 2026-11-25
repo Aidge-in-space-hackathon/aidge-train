@@ -3,7 +3,7 @@
 Un codec appris (aidge_in_space.codecs.base.LearnedCodec) délègue à un objet LatentCoding tout ce
 qui dépend du modèle d'entropie :
 - la partie du réseau qui s'exécute à bord (onboard()) ;
-- la préparation des tables de fréquences (prepare()) ;
+- la préparation des tables de fréquences, mises en cache sur le modèle (tables()) ;
 - le codage des latents en un flux binaire, ou la seule estimation de son débit (encode()) ;
 - le décodage du flux (decode()).
 
@@ -34,8 +34,9 @@ class LatentCoding:
     def onboard(self, model):
         """! @brief Module à exécuter à bord pour produire le flux (hors codage arithmétique).
 
-        @param model  Modèle entraîné (FactorizedPrior2018, Balle2017...).
-        @return Copie du module en mode évaluation, avec des GDN gelées (exportable en ONNX).
+        @param model  Modèle (FactorizedPrior2018, Balle2017...), entraîné ou non : le profilage
+                      n'a pas besoin des poids.
+        @return Copie de g_a en mode évaluation, avec des GDN gelées (exportable en ONNX).
         """
         return freeze(model.g_a)
 
@@ -114,7 +115,7 @@ class HyperpriorCoding(LatentCoding):
     def onboard(self, model):
         """! @brief g_a, h_a et h_s s'exécutent à bord (h_s pour connaître les échelles de y).
 
-        @param model  aidge_in_space.nn.ScaleHyperprior2018 entraîné.
+        @param model  aidge_in_space.nn.ScaleHyperprior2018, entraîné ou non.
         @return aidge_in_space.nn.HyperpriorOnboard aux GDN gelées.
         """
         return freeze(HyperpriorOnboard(model))

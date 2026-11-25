@@ -177,8 +177,10 @@ def build_patch_bank(paths_: list, n_patches: int, crop: int, in_ch: int, device
                      stats: dict | None = None) -> torch.Tensor:
     """! @brief Extrait une fois pour toutes des patchs uint8 (avec le sous-échantillonnage de l'article).
 
-    Par image : un facteur d'échelle aléatoire entre max(crop / min(w, h), 0,3) et 0,75, puis plusieurs recadrages.
-    Si le jeu compte plus d'images que de patchs, @p n_patches chemins sont tirés au hasard (reproductible
+    Par image, réduite d'abord si elle est assez grande (crop / min(w, h) <= 0,75) : un facteur d'échelle
+    aléatoire entre max(crop / min(w, h), 0,3) et 0,75 ; une image dont un côté est inférieur à @p crop est
+    agrandie à @p crop ; entre les deux, elle est gardée telle quelle. Puis plusieurs recadrages aléatoires
+    (n_patches / nombre d'images chacune). Si le jeu compte plus d'images que de patchs, @p n_patches chemins sont tirés au hasard (reproductible
     avec @p seed) avant tout décodage : la banque ne dépasse jamais @p n_patches patchs. Les images à plus
     de 8 bits sont mises à l'échelle (to_8bit).
     @param paths_      Chemins des images.
@@ -317,7 +319,12 @@ def load_checkpoint(path: Path, map_location="cpu") -> dict:
 
 
 def _read_ref(gitdir: Path, ref: str) -> str:
-    """! @brief Empreinte d'une référence Git (fichier de la référence, puis packed-refs), ou chaîne vide."""
+    """! @brief Empreinte d'une référence Git (fichier de la référence, puis packed-refs), ou chaîne vide.
+
+    @param gitdir  Dossier Git (celui d'un worktree : son @c commondir est aussi consulté).
+    @param ref     Référence, par exemple @c refs/heads/main.
+    @return Empreinte lue, ou chaîne vide si la référence est introuvable.
+    """
     dirs = [gitdir]
     common = gitdir / "commondir"
     if common.is_file():
@@ -364,6 +371,10 @@ def _warn_callback(step: int, exc: Exception) -> None:
 def _check_resume(ck: dict, cfg: TrainConfig, run_info: dict, ckpt_path: Path) -> None:
     """! @brief Refuse de reprendre un checkpoint qui n'est pas celui de ce run.
 
+    @param ck         Checkpoint existant (load_checkpoint()).
+    @param cfg        Configuration demandée.
+    @param run_info   Clé @c run attendue (@c job_id et @c name sont comparés).
+    @param ckpt_path  Chemin du checkpoint, cité dans le message d'erreur.
     @throws ConfigError si la clé @c run manque, si le job ou le nom diffère, ou si l'architecture ou λ diffère.
     """
     hint = f" Déplacez ou supprimez le fichier pour repartir de zéro : {ckpt_path}"
@@ -387,6 +398,10 @@ def _check_resume(ck: dict, cfg: TrainConfig, run_info: dict, ckpt_path: Path) -
 def _pick_data(cfg: TrainConfig) -> tuple:
     """! @brief Images d'entraînement et d'évaluation, avec les replis de la conception (§ 2.3.1).
 
+    Kodak absent est téléchargé ; sans images d'entraînement dans le dossier par défaut, l'entraînement
+    se fait sur les images d'évaluation ; sans images d'évaluation, l'évaluation se fait sur celles
+    d'entraînement (avertissements dans le journal).
+    @param cfg  Configuration (@c train_dir, @c eval_dir, @c n_eval_images).
     @return Triplet (chemins d'entraînement, chemins d'évaluation, source de l'évaluation).
     @throws ConfigError si le dossier d'entraînement désigné est vide, ou si les deux jeux sont vides.
     """
@@ -417,7 +432,8 @@ def train(cfg: TrainConfig, ckpt_path: Path, *, run_info: dict | None = None, de
 
     Déroulement (docs/conception_entrainement.md, § 2.3.1) : données, reprise éventuelle, boucle
     Adam, puis journal, évaluation et sauvegarde périodiques. @p should_stop est appelé à la fin de
-    chaque pas ; s'il renvoie vrai, le checkpoint est sauvegardé au pas courant.
+    chaque pas sauf le dernier ; s'il renvoie vrai, le checkpoint est sauvegardé au pas courant. Un
+    checkpoint déjà complet est rendu tel quel (statut @c "done", sans évaluation).
     @param cfg          Configuration.
     @param ckpt_path    Checkpoint à écrire (et à reprendre s'il existe).
     @param run_info     Clé @c run du checkpoint sans @c date (défaut : job None, nom et auteur de @p cfg, commit courant).
