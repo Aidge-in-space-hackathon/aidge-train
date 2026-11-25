@@ -57,6 +57,18 @@ WINDOWS_RESERVED = {"CON", "PRN", "AUX", "NUL", *(f"COM{i}" for i in range(1, 10
                     *(f"LPT{i}" for i in range(1, 10))}
 ## Période de rafraîchissement de l'onglet Suivre, en secondes.
 REFRESH_S = 5
+## Code navigateur lancé après la conversion ONNX : télécharge le fichier reçu (valeur d'un gr.File).
+ONNX_DOWNLOAD_JS = """(f) => {
+    if (f && f.url) {
+        const a = document.createElement("a");
+        a.href = f.url;
+        a.download = f.orig_name || "";
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+    }
+    return [];
+}"""
 ## Nombre de vignettes montrées par jeu d'images.
 N_SAMPLES = 6
 ## Colonnes du tableau des entraînements.
@@ -814,6 +826,34 @@ def job_model_file(store, job_id):
     return str(path) if path and Path(path).is_file() else None
 
 
+def job_onnx_file(store, job_id):
+    """! @brief Convertit en ONNX l'encodeur du checkpoint d'un job, pour le téléchargement.
+
+    Le fichier, `<nom du checkpoint>_encodeur.onnx`, est écrit dans le dossier du job et réutilisé
+    tant que le checkpoint n'a pas changé (aidge_in_space.backends.export_checkpoint_encoder).
+    @param store   JobStore.
+    @param job_id  Identifiant du job, ou None.
+    @return Chemin du fichier ONNX.
+    @throws ValueError avec un message pour l'utilisateur : pas de job choisi, job inconnu, pas encore
+            de checkpoint, ou conversion impossible.
+    """
+    if job_id is None:
+        raise ValueError("Sélectionnez d'abord un entraînement.")
+    try:
+        job = store.get(int(job_id))
+    except KeyError:
+        raise ValueError("Ce job n'existe plus.") from None
+    ckpt = job_model_file(store, job.id)
+    if ckpt is None:
+        raise ValueError("Pas encore de modèle à convertir : attendez le premier point de sauvegarde.")
+    from . import backends                             # importe torch : seulement au premier clic
+    dest = store.job_dir(job.id) / f"{Path(ckpt).stem}_encodeur.onnx"
+    try:
+        return str(backends.export_checkpoint_encoder(ckpt, dest))
+    except Exception as e:
+        raise ValueError(f"Conversion en ONNX impossible : {e}") from e
+
+
 def cancel_job(store, job_id, confirmed):
     """! @brief Annule un job après confirmation.
 
@@ -1133,6 +1173,11 @@ def build_tabs(store=None, tabs=None):
                     s_file = gr.File(label="Modèle entraîné (checkpoint .pt, à télécharger)", show_label=False,
                                      interactive=False, elem_classes="compact-file",
                                      value=job_model_file(store, jobs0[0][1] if jobs0 else None))
+                    s_onnx_go = gr.Button("Convertir en ONNX et télécharger", size="sm")
+                    s_onnx = gr.File(label="Encodeur ONNX", show_label=False, interactive=False,
+                                     elem_classes="compact-file", visible=False)
+                    ui_style.hint("**ONNX** : l'encodeur seul (partie embarquée, GDN gelées), l'entrée d'Aidge. "
+                                  "Images de taille libre, multiple de 16.")
                     with gr.Accordion("Annuler cet entraînement", open=False):
                         with gr.Row():
                             s_confirm = gr.Checkbox(label="Je confirme l'annulation")
@@ -1235,6 +1280,18 @@ def build_tabs(store=None, tabs=None):
 
     s_pick.change(show, s_pick, [s_plot, s_log, s_summary], show_progress="hidden")
     s_pick.change(lambda j: job_model_file(store, j), s_pick, s_file, show_progress="hidden")
+    s_pick.change(lambda j: gr.update(value=None, visible=False), s_pick, s_onnx, show_progress="hidden")
+
+    # Adaptateur de job_onnx_file : la conversion n'a lieu qu'au clic.
+    def on_onnx(job_id):
+        try:
+            return gr.update(value=job_onnx_file(store, job_id), visible=True)
+        except ValueError as e:
+            raise gr.Error(str(e)) from None
+
+    # Une conversion à la fois ; une fois le fichier prêt, le navigateur le télécharge aussitôt.
+    s_onnx_go.click(on_onnx, s_pick, s_onnx, concurrency_limit=1).success(
+        None, s_onnx, None, js=ONNX_DOWNLOAD_JS)
 
     # Adaptateur de cancel_job.
     def on_cancel(job_id, ok):

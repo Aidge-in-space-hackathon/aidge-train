@@ -6,11 +6,13 @@ docs/conception_entrainement.md (§ 2.7 et 2.8). Dossiers temporaires uniquement
 import dataclasses
 import hashlib
 import io
+import os
 import re
 import tarfile
 import time
 import types
 import zipfile
+from pathlib import Path
 
 import matplotlib
 import numpy as np
@@ -459,6 +461,44 @@ def test_job_model_file(store, tmp_path):
     assert ui.job_model_file(store, jid) is None                     # chemin connu, fichier absent
     ckpt.write_bytes(b"x")
     assert ui.job_model_file(store, jid) == str(ckpt)
+
+
+def test_job_onnx_file(store, tmp_path):
+    torch = pytest.importorskip("torch")
+    ort = pytest.importorskip("onnxruntime")
+    from aidge_in_space.nn import Balle2017, freeze
+    jid = store.submit(TrainConfig(name="t", train_dir=str(tmp_path), N=16, crop=64, steps=2).to_dict())
+    with pytest.raises(ValueError, match="Sélectionnez"):
+        ui.job_onnx_file(store, None)
+    with pytest.raises(ValueError, match="n'existe plus"):
+        ui.job_onnx_file(store, 9999)
+    with pytest.raises(ValueError, match="premier point de sauvegarde"):
+        ui.job_onnx_file(store, jid)
+    ckpt = tmp_path / "modele_run1.pt"
+    store.set_ckpt_path(jid, str(ckpt))
+    ckpt.write_bytes(b"pas un checkpoint")
+    with pytest.raises(ValueError, match="Conversion en ONNX impossible"):
+        ui.job_onnx_file(store, jid)
+    torch.manual_seed(0)
+    model = Balle2017(1, 16, True).eval()
+    torch.save({"state_dict": model.state_dict(), "cfg": {"in_ch": 1, "N": 16, "gdn_last": True}}, ckpt)
+    path = ui.job_onnx_file(store, jid)
+    assert path.endswith("modele_run1_encodeur.onnx") and str(store.job_dir(jid)) in path
+    # Taille libre : une autre taille que celle de l'export, même résultat que PyTorch.
+    x = np.random.default_rng(0).random((1, 1, 48, 80), dtype=np.float32)
+    sess = ort.InferenceSession(path, providers=["CPUExecutionProvider"])
+    got = sess.run(None, {"image": x})[0]
+    with torch.no_grad():
+        ref = freeze(model.g_a)(torch.from_numpy(x)).numpy()
+    assert got.shape == (1, 16, 3, 5) and np.abs(got - ref).max() < 1e-4
+    # Réutilisé tant que le checkpoint ne change pas, refait sinon.
+    mtime = Path(path).stat().st_mtime_ns
+    assert ui.job_onnx_file(store, jid) == path and Path(path).stat().st_mtime_ns == mtime
+    later = time.time() + 10
+    os.utime(ckpt, (later, later))
+    ui.job_onnx_file(store, jid)
+    assert Path(path).stat().st_mtime_ns != mtime
+    assert not [p for p in store.job_dir(jid).iterdir() if p.name.endswith(".tmp")]
 
 
 def test_worker_banner(store):

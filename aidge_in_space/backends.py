@@ -9,12 +9,16 @@ proches d'un CPU embarqué) ; elles restent indicatives tant qu'elles sont prise
 
 Les modèles ONNX sont exportés une fois par (poids, taille d'entrée) dans outputs/onnx, et les
 moteurs préparés (session, graphe compilé) sont gardés dans un cache LRU de MAX_RUNNERS entrées.
+export_checkpoint_encoder() produit à part un ONNX à taille libre (axes dynamiques), celui que
+l'onglet Suivre propose au téléchargement.
 """
 import contextlib
 import hashlib
 import os
+import tempfile
 import warnings
 from collections import OrderedDict
+from pathlib import Path
 
 import numpy as np
 import torch
@@ -122,6 +126,48 @@ def export_onnx(module, shape):
     return path
 
 
+def export_checkpoint_encoder(checkpoint, dest):
+    """! @brief Convertit l'encodeur d'un checkpoint Ballé 2017 en un fichier ONNX à télécharger.
+
+    Exporte la transformée d'analyse g_a, la partie embarquée, aux GDN gelées (Conv, Mul, Sqrt, Div),
+    comme le banc d'essai : entrée @c "image" (1 x C x H x W, valeurs dans [0, 1]), sortie @c "latent"
+    (1 x N x H/16 x W/16, avant arrondi). Hauteur et largeur sont libres (axes dynamiques), multiples de 16.
+    Le fichier est réutilisé tant qu'il est plus récent que le checkpoint ; sinon il est réécrit
+    de façon atomique (fichier temporaire propre à l'appel, puis renommage).
+    @param checkpoint  Chemin du checkpoint (clés @c state_dict et @c cfg).
+    @param dest        Fichier ONNX à écrire.
+    @return @p dest, sous forme de Path.
+    @throws FileNotFoundError si le checkpoint n'existe pas.
+    @throws KeyError, RuntimeError si le checkpoint n'est pas un modèle Ballé 2017 lisible.
+    """
+    from .nn import Balle2017, freeze
+
+    checkpoint, dest = Path(checkpoint), Path(dest)
+    if not checkpoint.is_file():
+        raise FileNotFoundError(checkpoint)
+    if dest.is_file() and dest.stat().st_mtime >= checkpoint.stat().st_mtime:
+        return dest
+    ck = torch.load(checkpoint, map_location="cpu", weights_only=True)
+    cfg = ck["cfg"]
+    model = Balle2017(cfg["in_ch"], cfg["N"], cfg.get("gdn_last", True))
+    model.load_state_dict(ck["state_dict"])
+    encoder = freeze(model.g_a)
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    fd, tmp = tempfile.mkstemp(dir=dest.parent, prefix=dest.name + ".", suffix=".tmp")
+    os.close(fd)
+    dyn = {"image": {2: "hauteur", 3: "largeur"}, "latent": {2: "hauteur_16", 3: "largeur_16"}}
+    try:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore")
+            torch.onnx.export(encoder, (torch.zeros(1, cfg["in_ch"], 64, 64),), tmp, dynamo=False,
+                              input_names=["image"], output_names=["latent"], dynamic_axes=dyn,
+                              opset_version=ONNX_OPSET, do_constant_folding=True)
+        os.replace(tmp, dest)
+    finally:
+        Path(tmp).unlink(missing_ok=True)
+    return dest
+
+
 def _prune_onnx(keep):
     """! @brief Supprime les exports ONNX les moins récemment utilisés au-delà de MAX_ONNX_FILES.
 
@@ -134,7 +180,11 @@ def _prune_onnx(keep):
 
 
 def _torch_runner(module):
-    """! @brief Exécuteur PyTorch du module, sur THREADS thread(s)."""
+    """! @brief Exécuteur PyTorch du module, sur THREADS thread(s).
+
+    @param module  Module aux GDN gelées.
+    @return Fonction tableau float32 -> tableau numpy de sortie.
+    """
     module = module.eval()
 
     def run(x):
@@ -144,7 +194,11 @@ def _torch_runner(module):
 
 
 def _onnxruntime_runner(path):
-    """! @brief Exécuteur ONNX Runtime (CPU, THREADS thread(s)) d'un fichier ONNX."""
+    """! @brief Exécuteur ONNX Runtime (CPU, THREADS thread(s)) d'un fichier ONNX.
+
+    @param path  Fichier ONNX d'export_onnx() (entrée @c "image").
+    @return Fonction tableau float32 -> tableau numpy de sortie.
+    """
     import onnxruntime as ort
     so = ort.SessionOptions()
     so.intra_op_num_threads = THREADS
@@ -158,6 +212,7 @@ def _aidge_runner(path, shape):
 
     @param path   Fichier ONNX.
     @param shape  Forme de l'entrée, nécessaire à la compilation du graphe.
+    @return Fonction tableau float32 -> copie numpy de la sortie du graphe.
     """
     import aidge_core
     import aidge_backend_cpu  # noqa: F401  (enregistre les noyaux CPU)
