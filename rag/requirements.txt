@@ -9,4 +9,4 @@ fastembed>=0.9.1
 # Client du proxy LiteLLM ; < 3 : même version majeure que celle qu'impose le paquet litellm (tests de bascule)
 openai>=3.51.0,<4
 httpx>=0.28.1
-pyyaml>=6.0.3
+pyyaml>=6.0.4
